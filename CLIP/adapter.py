@@ -28,6 +28,18 @@ class ClipAdapter(nn.Module):
         y = self.fc2(x)
         return x, y
 
+class SecondAdapter(nn.Module):
+    def __init__(self, c_in, bottleneck=768):
+        super(SecondAdapter, self).__init__()
+        self.fc1 = nn.Sequential(
+            nn.Linear(c_in, bottleneck, bias=False),
+            nn.LeakyReLU(inplace=False)
+        )
+
+    def forward(self, x):
+        x = self.fc1(x)
+        return x
+
         
 class CLIP_Inplanted(nn.Module):
     def __init__(self, clip_model, features):
@@ -36,7 +48,9 @@ class CLIP_Inplanted(nn.Module):
         self.image_encoder = clip_model.visual
         self.features = features
         self.seg_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
-        self.det_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
+        # self.det_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
+        self.second_seg_adapter = SecondAdapter(1024, bottleneck=768)
+        self.det_adapter = SecondAdapter(1024, bottleneck=768)
 
 
     def forward(self, x):
@@ -56,7 +70,7 @@ class CLIP_Inplanted(nn.Module):
 
         attn_out = []
         seg_patch_tokens = []
-        det_patch_tokens = []
+        # det_patch_tokens = []
 
         for i in range(24):
             if i + 1 == 12:
@@ -66,23 +80,23 @@ class CLIP_Inplanted(nn.Module):
                 x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
             if (i + 1) in self.features:
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](x)
-                det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
+                # det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
 
-                x = 0.8 * x + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
+                x = 0.85 * x + 0.15 * seg_adapt_out # + 0.1 * det_adapt_out
 
                 seg_patch_tokens.append(seg_adapt_med)
-                det_patch_tokens.append(det_adapt_med)
+                # det_patch_tokens.append(det_adapt_med)
 
         B, C, L = attn_out[0].shape
         H = int(math.sqrt(L-1))
         out_attn = torch.zeros([H, H]).to('cuda')
 
-        for i in range(len(attn)):
+        for i in range(len(attn_out)):
             out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
         x = x.permute(1, 0, 2)
 
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]
-        det_patch_tokens = [det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))]
+        # det_patch_tokens = [det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))]
 
         pooled, tokens = self.image_encoder._global_pool(x)
         pooled = self.image_encoder.ln_post(pooled)
@@ -90,8 +104,28 @@ class CLIP_Inplanted(nn.Module):
         if self.image_encoder.proj is not None:
             pooled = pooled @ self.image_encoder.proj
 
-        return pooled, seg_patch_tokens, det_patch_tokens
+        return pooled, seg_patch_tokens #, det_patch_tokens
 
+    def forward_second_adapter(self, x):
+        x = self.image_encoder.conv1(x)
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        x = x.permute(0, 2, 1)
 
+        x = torch.cat(
+            [self.image_encoder.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype,device=x.device),x], dim=1)
+        x = x + self.image_encoder.positional_embedding.to(x.dtype)
 
+        x = self.image_encoder.patch_dropout(x)
+        x = self.image_encoder.ln_pre(x)
 
+        x = x.permute(1, 0, 2)
+        for i in range(24):
+            x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+
+        seg_adapt_med = self.second_seg_adapter(x)
+        det_adapt_med = self.det_adapter(x)
+
+        seg_adapt_med = seg_adapt_med.permute(1, 0, 2)
+        det_adapt_med = det_adapt_med.permute(1, 0, 2)
+
+        return seg_adapt_med, det_adapt_med

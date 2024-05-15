@@ -7,8 +7,8 @@ import random
 import pandas as pd
 import numpy as np
 
-CLASS_NAMES = ['Brain', 'Liver', 'Retina_RESC', 'Retina_OCT2017', 'Chest', 'Histopathology']
-CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3}
+CLASS_NAMES = ['Brain', 'Liver', 'Retina_RESC']  # , 'Retina_OCT2017', 'Chest', 'Histopathology'
+CLASS_INDEX = {'Brain': 3, 'Liver': 2, 'Retina_RESC': 1}  # , 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3
 
 
 class MedTrainDataset(Dataset):
@@ -16,7 +16,7 @@ class MedTrainDataset(Dataset):
                  dataset_path='/data/',
                  class_name='Brain',
                  resize=240,
-                 batch_size = 1
+                 batch_size=1
                  ):
         assert class_name in CLASS_NAMES, 'class_name: {}, should be in {}'.format(class_name, CLASS_NAMES)
 
@@ -30,15 +30,13 @@ class MedTrainDataset(Dataset):
 
         # set transforms
         self.transform_x = transforms.Compose([
-            transforms.Resize((resize,resize), Image.BICUBIC),
+            transforms.Resize((resize, resize), Image.BICUBIC),
             transforms.ToTensor(),
         ])
 
         self.transform_mask = transforms.Compose(
-            [transforms.Resize((resize,resize), Image.NEAREST),
+            [transforms.Resize((resize, resize), Image.NEAREST),
              transforms.ToTensor()])
-
-            
 
     def __getitem__(self, idx):
         x, y, mask, seg_idx = self.data[idx]
@@ -54,7 +52,7 @@ class MedTrainDataset(Dataset):
 
         if seg_idx < 0:
             return batch_img, y, torch.zeros([1, self.resize, self.resize]), seg_idx
-        
+
         batch_mask = []
         for i in range(batch):
             if mask[i] is None:
@@ -119,7 +117,6 @@ class MedTrainDataset(Dataset):
         random.shuffle(data)
         return data
 
-
     def shuffle_dataset(self):
         data_img = {}
         for class_name_one in CLASS_NAMES:
@@ -168,8 +165,6 @@ class MedTrainDataset(Dataset):
         self.data = data
 
 
-
-
 class MedTestDataset(Dataset):
     def __init__(self,
                  dataset_path='/data/',
@@ -188,14 +183,13 @@ class MedTestDataset(Dataset):
 
         # set transforms
         self.transform_x = transforms.Compose([
-            transforms.Resize((resize,resize), Image.BICUBIC),
+            transforms.Resize((resize, resize), Image.BICUBIC),
             transforms.ToTensor(),
         ])
 
         self.transform_mask = transforms.Compose(
-            [transforms.Resize((resize,resize), Image.NEAREST),
+            [transforms.Resize((resize, resize), Image.NEAREST),
              transforms.ToTensor()])
-
 
     def __getitem__(self, idx):
         x, y, mask = self.x[idx], self.y[idx], self.mask[idx]
@@ -240,4 +234,3 @@ class MedTestDataset(Dataset):
 
         assert len(x) == len(y), 'number of x and y should be same'
         return list(x), list(y), list(mask)
-
