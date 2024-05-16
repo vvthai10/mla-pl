@@ -25,8 +25,8 @@ warnings.filterwarnings("ignore")
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
-CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3}
-CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC', -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'}
+CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1} #, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3
+CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC'} # , -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'
 
 
 def setup_seed(seed):
@@ -88,7 +88,7 @@ def main():
     text_feature_list = [0]
     # text prompt
     with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1,2,3,-3,-2,-1]:
+        for i in [1,2,3]: #,-3,-2,-1
             text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
             text_feature_list.append(text_feature)
 
@@ -96,21 +96,20 @@ def main():
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
+        if epoch % 2 == 0:
+            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            if score >= save_score:
+                save_score = score
+                ckp_path = f'./ckpt/zero-shot/{args.obj}.pth'
+                torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+                            'det_adapters': model.det_adapters.state_dict()},
+                           ckp_path)
+                print(f'best epoch found: epoch {epoch} ')
+            print('\n')
 
         loss_list = []
-        idx = 0
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
-            if idx % (len(train_loader) // 5) == 0:
-                score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
-                if score >= save_score:
-                    save_score = score
-                    ckp_path = f'./ckpt/zero-shot/{args.obj}.pth'
-                    torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                                'det_adapters': model.det_adapters.state_dict()}, 
-                                ckp_path)
-                    print(f'best epoch found: epoch {epoch} batch {idx}')
-                print('\n')
-            idx += 1
+
 
             image = image.squeeze(0).to(device)
             seg_idx = seg_idx.item()
