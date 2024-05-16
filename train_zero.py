@@ -99,24 +99,20 @@ def main():
     torch.autograd.set_detect_anomaly(True)
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-
+        if epoch % 2 == 0:  # idx % (len(train_loader) // 5) == 0
+            print("\nTest...")
+            score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            if score >= save_score:
+                save_score = score
+                ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
+                torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+                            'det_adapter': model.det_adapter.state_dict(),
+                            'second_seg_adapter': model.second_seg_adapter.state_dict()},
+                           ckp_path)
+                print(f'best epoch found: epoch {epoch} ')
+            print('score test: ' + str(score) + '\n')
         loss_list = []
-        idx = 0
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
-            if idx % (len(train_loader) // 5) == 0: #idx % (len(train_loader) // 5) == 0
-                print("\nTest...")
-                score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
-                if score >= save_score:
-                    save_score = score
-                    ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
-                    torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                                'det_adapter': model.det_adapter.state_dict(),
-                                'second_seg_adapter': model.second_seg_adapter.state_dict()},
-                                ckp_path)
-                    print(f'best epoch found: epoch {epoch} batch {idx}')
-                print('score test: ' + str(score) + '\n')
-            idx += 1
-
             image = image.squeeze(0).to(device)
 
             mask = mask.squeeze(0).to(device)
@@ -318,7 +314,11 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
     image_scores = np.array(image_scores)
 
     segment_scores = (segment_scores - segment_scores.min()) / (segment_scores.max() - segment_scores.min())
-    image_scores = (image_scores - image_scores.min()) / (image_scores.max() - image_scores.min())
+    if image_scores.max() == image_scores.min():
+        choose_value = min(image_scores.min(), 1)
+        image_scores.fill(choose_value)
+    else:
+        image_scores = (image_scores - image_scores.min()) / (image_scores.max() - image_scores.min())
 
     img_roc_auc_det = roc_auc_score(gt_list, image_scores)
     print(f'{args.obj} AUC : {round(img_roc_auc_det, 4)}')
