@@ -159,7 +159,7 @@ def main():
                     anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
 
                     anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                    med = (np.max(anomaly_map_combined) + np.min(anomaly_map_combined)) / 2
+                    med = np.mean(anomaly_map_combined)
                     rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
                     cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
 
@@ -201,7 +201,7 @@ def main():
                 seg_second_loss += loss_focal(anomaly_map_seg_second, mask)
                 seg_second_loss += loss_dice(anomaly_map_seg_second[:, 1, :, :], mask)
 
-                loss = seg_loss  # = focal(seg_out, mask) + bce(det_out, y)
+                loss = seg_loss + det_loss + seg_second_loss  # = focal(seg_out, mask) + bce(det_out, y)
                 loss.requires_grad_(True)
                 seg_optimizer.zero_grad()
                 second_seg_optimizer.zero_grad()
@@ -226,7 +226,7 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
     image_scores = []
     segment_scores = []
 
-    for (image, y, mask) in tqdm(test_loader):
+    for (image, y, mask) in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
@@ -262,7 +262,7 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
                 anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
 
                 anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                med = (np.max(anomaly_map_combined) + np.min(anomaly_map_combined)) / 2
+                med = np.mean(anomaly_map_combined)
                 rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
                 cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
 
