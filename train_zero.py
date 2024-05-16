@@ -103,7 +103,7 @@ def main():
         loss_list = []
         idx = 0
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
-            if idx % 10 == 0: #idx % (len(train_loader) // 5) == 0
+            if idx % (len(train_loader) // 5) == 0: #idx % (len(train_loader) // 5) == 0
                 print("\nTest...")
                 score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
                 if score >= save_score:
@@ -164,9 +164,10 @@ def main():
 
                     mask_detected = np.zeros_like(ori_img, dtype=bool)
 
-                    start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
-                    start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
-                    mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
+                    if rows_to_keep.size == 0 or cols_to_keep.size == 0:
+                        start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
+                        start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
+                        mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                     local_image = np.where(mask_detected, ori_img, 0)
                     local_image = Image.fromarray(local_image)
@@ -266,9 +267,10 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
 
                 mask_detected = np.zeros_like(ori_img, dtype=bool)
 
-                start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
-                start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
-                mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
+                if rows_to_keep.size == 0 or cols_to_keep.size == 0:
+                    start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
+                    start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
+                    mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                 local_image = np.where(mask_detected, ori_img, 0)
                 local_image = Image.fromarray(local_image)
