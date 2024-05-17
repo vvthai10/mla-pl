@@ -155,15 +155,17 @@ def main():
                     anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
 
                     anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                    med = np.mean(anomaly_map_combined)
-                    rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
-                    cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
-
-                    mask_detected = np.zeros_like(ori_img, dtype=bool)
-
-                    start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
-                    start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
-                    mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
+                    anomaly_map_combined[anomaly_map_combined > 0.5], anomaly_map_combined[anomaly_map_combined <= 0.5] = 1, 0
+                    mask_detected = np.stack((anomaly_map_combined,) * 3, axis=-1)
+                    # med = np.mean(anomaly_map_combined)
+                    # rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
+                    # cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
+                    #
+                    # mask_detected = np.zeros_like(ori_img, dtype=bool)
+                    #
+                    # start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
+                    # start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
+                    # mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                     local_image = np.where(mask_detected, ori_img, 0)
                     local_image = Image.fromarray(local_image)
@@ -258,16 +260,18 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
                 anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
 
                 anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                med = np.mean(anomaly_map_combined)
-                rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
-                cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
-
-                mask_detected = np.zeros_like(ori_img, dtype=bool)
-
-                if rows_to_keep.size == 0 or cols_to_keep.size == 0:
-                    start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
-                    start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
-                    mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
+                anomaly_map_combined[anomaly_map_combined > 0.5], anomaly_map_combined[anomaly_map_combined <= 0.5] = 1, 0
+                mask_detected = np.stack((anomaly_map_combined,) * 3, axis=-1)
+                # med = np.mean(anomaly_map_combined)
+                # rows_to_keep = np.any(anomaly_map_combined >= med, axis=1)
+                # cols_to_keep = np.any(anomaly_map_combined >= med, axis=0)
+                #
+                # mask_detected = np.zeros_like(ori_img, dtype=bool)
+                #
+                # if rows_to_keep.size == 0 or cols_to_keep.size == 0:
+                #     start_row, end_row = np.where(rows_to_keep)[0][[0, -1]]
+                #     start_col, end_col = np.where(cols_to_keep)[0][[0, -1]]
+                #     mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                 local_image = np.where(mask_detected, ori_img, 0)
                 local_image = Image.fromarray(local_image)
