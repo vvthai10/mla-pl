@@ -124,7 +124,7 @@ class CLIP_Inplanted(nn.Module):
                 x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
 
         seg_adapt_med = self.second_seg_adapter(x)
-        det_adapt_med = self.det_adapter(x)
+        det_adapt_med = self.second_det_adapter(x)
 
         seg_adapt_med = seg_adapt_med.permute(1, 0, 2)
         det_adapt_med = det_adapt_med.permute(1, 0, 2)
