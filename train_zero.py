@@ -99,7 +99,7 @@ def main():
     torch.autograd.set_detect_anomaly(True)
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        if epoch % 2 == 0:  # idx % (len(train_loader) // 5) == 0
+        if epoch % 1 == 0:  # idx % (len(train_loader) // 5) == 0
             print("\nTest...")
             score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
             if score >= save_score:
