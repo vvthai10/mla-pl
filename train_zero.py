@@ -170,7 +170,7 @@ def main():
                     # mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                     # local_image = np.where(mask_detected, ori_img, 0)
-                    local_image = np.multiply(image, mask_detected)
+                    local_image = np.multiply(ori_img, mask_detected).astype(np.uint8)
                     local_image = Image.fromarray(local_image)
                     local_image.save("debug.png")
                     local_image = train_dataset.transform_x(local_image)
@@ -280,7 +280,7 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
                 #     mask_detected[start_row:end_row + 1, start_col:end_col + 1, :] = True
 
                 # local_image = np.where(mask_detected, ori_img, 0)
-                local_image = np.multiply(image, mask_detected)
+                local_image = np.multiply(ori_img, mask_detected).astype(np.uint8)
                 local_image = Image.fromarray(local_image)
                 local_image = test_dataset.transform_x(local_image)
                 second_input += [local_image]
