@@ -82,7 +82,7 @@ class CLIP_Inplanted(nn.Module):
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](x)
                 # det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
 
-                x = 0.85 * x + 0.15 * seg_adapt_out # + 0.1 * det_adapt_out
+                x = 0.9 * x + 0.1 * seg_adapt_out # + 0.1 * det_adapt_out
 
                 seg_patch_tokens.append(seg_adapt_med)
                 # det_patch_tokens.append(det_adapt_med)
@@ -119,7 +119,7 @@ class CLIP_Inplanted(nn.Module):
         x = self.image_encoder.ln_pre(x)
 
         x = x.permute(1, 0, 2)
-        for i in range(24):
+        for i in range(7):
             x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
 
         seg_adapt_med = self.second_seg_adapter(x)
