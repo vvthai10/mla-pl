@@ -17,15 +17,11 @@ class ClipAdapter(nn.Module):
         super(ClipAdapter, self).__init__()
         self.fc1 = nn.Sequential(
             nn.Linear(c_in, bottleneck_1, bias=False),
-            nn.LeakyReLU(inplace=False),
-            nn.Linear(bottleneck_1, bottleneck_2, bias=False),
-            nn.LeakyReLU(inplace=False),
-            nn.Linear(bottleneck_2, bottleneck_1, bias=False),
             nn.SiLU(inplace=False)
         )
         self.fc2 = nn.Sequential(
             nn.Linear(bottleneck_1, c_in, bias=False),
-            nn.LeakyReLU(inplace=False)
+            nn.SiLU(inplace=False)
         )
 
     def forward(self, x):
@@ -49,7 +45,7 @@ class CLIP_Inplanted(nn.Module):
         self.seg_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck_1=768, bottleneck_2=384) for i in range(len(features))] )
         self.det_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck_1=768, bottleneck_2=384) for i in range(len(features))] )
 
-    def forward(self, x, class_index):
+    def forward(self, x, use_second, class_index):
         ori_x = x.clone()
         x = self.image_encoder.conv1(x)
         x = x.reshape(x.shape[0], x.shape[1], -1) 
@@ -81,7 +77,7 @@ class CLIP_Inplanted(nn.Module):
 
                 seg_patch_tokens.append(seg_adapt_med)
                 det_patch_tokens.append(det_adapt_med)
-            if i + 1 == 12:
+            if use_second and i + 1 == 12:
                 assert len(seg_patch_tokens) == 2
                 clone_seg_patch_tokens = seg_patch_tokens.copy()
                 clone_seg_patch_tokens = [clone_seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(clone_seg_patch_tokens))]

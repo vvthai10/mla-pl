@@ -96,9 +96,10 @@ def main():
     torch.autograd.set_detect_anomaly(True)
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        if epoch > 0:  # idx % (len(train_loader) // 5) == 0
+        use_second = epoch >= 10
+        if epoch >= 0:  # idx % (len(train_loader) // 5) == 0
             print("\nTest...")
-            score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            score = test(args, model, test_dataset, test_loader, text_feature_list[CLASS_INDEX[args.obj]], use_second)
             if score >= save_score:
                 save_score = score
                 ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
@@ -163,18 +164,19 @@ def main():
         print("Loss: ", np.mean(loss_list))
 
 
-def test(args, seg_model, test_dataset, test_loader, text_features):
+def test(args, seg_model, test_dataset, test_loader, text_features, use_second):
     gt_list = []
     gt_mask_list = []
     image_scores = []
     segment_scores = []
+    class_index = CLASS_INDEX[args.obj]
 
     for (image, y, mask) in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)  # , ori_det_patch_tokens
+            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, use_second, class_index)  # , ori_det_patch_tokens
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
@@ -186,6 +188,7 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
                 anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
+            image_scores.append(anomaly_score.cpu())
 
             # pixel
             patch_tokens = ori_seg_patch_tokens
