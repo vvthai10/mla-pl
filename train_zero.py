@@ -62,7 +62,14 @@ def main():
                               pretrained=args.pretrain, require_pretrained=True)
     clip_model.eval()
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(device)
+    text_feature_list = [0]
+    # text prompt
+    with torch.cuda.amp.autocast(), torch.no_grad():
+        for i in [1, 2, 3]:  # ,-3,-2,-1
+            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+            text_feature_list.append(text_feature)
+
+    model = CLIP_Inplanted(img_size=args.img_size, clip_model=clip_model, text_feature_list=text_feature_list, features=args.features_list).to(device)
     model.eval()
 
     for name, param in model.named_parameters():
@@ -71,10 +78,6 @@ def main():
     # optimizer for only adapters
     seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
-    second_seg_optimizer = torch.optim.Adam(list(model.second_seg_adapter.parameters()), lr=args.learning_rate,
-                                            betas=(0.5, 0.999))
-    second_det_optimizer = torch.optim.Adam(list(model.second_det_adapter.parameters()), lr=args.learning_rate,
-                                            betas=(0.5, 0.999))
 
     # load dataset and loader
     kwargs = {'num_workers': 4, 'pin_memory': True} if use_cuda else {}
@@ -89,13 +92,6 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    text_feature_list = [0]
-    # text prompt
-    with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1, 2, 3]:  # ,-3,-2,-1
-            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
-            text_feature_list.append(text_feature)
-
     save_score = 0.0
     torch.autograd.set_detect_anomaly(True)
     for epoch in range(args.epoch):
@@ -107,9 +103,7 @@ def main():
                 save_score = score
                 ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
                 torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                            'det_adapters': model.det_adapters.state_dict(),
-                            'second_det_adapter': model.second_det_adapter.state_dict(),
-                            'second_seg_adapter': model.second_seg_adapter.state_dict()},
+                            'det_adapters': model.det_adapters.state_dict()},
                            ckp_path)
                 print(f'best epoch found: epoch {epoch} ')
             print('score test: ' + str(score) + '\n')
@@ -121,7 +115,7 @@ def main():
             mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(image)  # , det_patch_tokens
+                _, seg_patch_tokens, det_patch_tokens = model(image, seg_idx)  # , det_patch_tokens
                 seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
 
@@ -138,7 +132,6 @@ def main():
 
                 # pixel level
                 seg_loss = 0  # = seg_adapters + second_seg_adapter
-                seg_anomaly_maps = []
                 for layer in range(len(seg_patch_tokens)):
                     # seg_patch_tokens[layer].shape torch.Size([289, 768])
                     # text_feature_list[seg_idx].shape torch.Size([768, 2])
@@ -150,66 +143,16 @@ def main():
                     anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H), size=args.img_size,
                                                 mode='bilinear', align_corners=True)
                     anomaly_map = torch.softmax(anomaly_map, dim=1)
-                    seg_anomaly_maps.append(anomaly_map[:, 1, :, :])
                     seg_loss += loss_focal(anomaly_map, mask)
                     seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
-
-                # TODO: Calculation second adapter, batch = 1
-                batch = image.shape[0]
-                second_input = []
-                for b in range(batch):
-                    b_img = image[b].clone()
-                    ori_img = b_img * 255
-                    ori_img = ori_img.cpu().numpy().astype(np.uint8)
-                    ori_img = np.transpose(ori_img, (1, 2, 0))
-
-                    anomaly_map_combined = seg_anomaly_maps[0]
-                    for anomaly_map in seg_anomaly_maps[1:]:
-                        anomaly_map_combined = anomaly_map_combined + anomaly_map.clone()
-                    anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
-
-                    anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                    mask_detected = np.stack((anomaly_map_combined,) * 3, axis=-1)
-
-                    local_image = np.multiply(ori_img, mask_detected).astype(np.uint8)
-                    local_image = Image.fromarray(local_image)
-                    local_image = train_dataset.transform_x(local_image)
-                    second_input += [local_image]
-                second_input = torch.stack(second_input)
-                second_input = second_input.to(device)
-
-                # TODO: Cal Loss
-                seg_adapt_med, det_adapt_med = model.forward_second_adapter(second_input)
-                seg_adapt_med = seg_adapt_med[0, 1:, :].clone()
-                det_adapt_med = det_adapt_med[0, 1:, :].clone()
-
-                det_adapt_med = det_adapt_med / det_adapt_med.norm(dim=-1, keepdim=True)
-                anomaly_map_det = (100.0 * det_adapt_med @ text_feature_list[seg_idx]).unsqueeze(0)
-                anomaly_map_det = torch.softmax(anomaly_map_det, dim=-1)[:, :, 1]
-                anomaly_score = torch.mean(anomaly_map_det, dim=-1)
-                det_loss += loss_bce(anomaly_score, image_label)
-
-                seg_adapt_med = seg_adapt_med / seg_adapt_med.norm(dim=-1, keepdim=True)
-                anomaly_map_seg_second = (100.0 * seg_adapt_med @ text_feature_list[seg_idx]).unsqueeze(0)
-                B, L, C = anomaly_map_seg_second.shape
-                H = int(np.sqrt(L))
-                anomaly_map_seg_second = F.interpolate(anomaly_map_seg_second.permute(0, 2, 1).view(B, 2, H, H),
-                                                       size=args.img_size, mode='bilinear', align_corners=True)
-                anomaly_map_seg_second = torch.softmax(anomaly_map_seg_second, dim=1)
-                seg_loss += loss_focal(anomaly_map_seg_second, mask)
-                seg_loss += loss_dice(anomaly_map_seg_second[:, 1, :, :], mask)
 
                 loss = seg_loss + det_loss  # = focal(seg_out, mask) + bce(det_out, y)
                 loss.requires_grad_(True)
                 seg_optimizer.zero_grad()
                 det_optimizer.zero_grad()
-                second_seg_optimizer.zero_grad()
-                second_det_optimizer.zero_grad()
                 loss.backward()
                 seg_optimizer.step()
                 det_optimizer.step()
-                second_seg_optimizer.step()
-                second_det_optimizer.step()
 
                 loss_list.append(loss.item())
 
@@ -225,9 +168,6 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
     gt_mask_list = []
     image_scores = []
     segment_scores = []
-
-    image_scores_second = []
-    segment_scores_second = []
 
     for (image, y, mask) in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
@@ -249,7 +189,6 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
 
             # pixel
             patch_tokens = ori_seg_patch_tokens
-            second_anomaly_maps = []
             anomaly_maps = []
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
@@ -259,87 +198,27 @@ def test(args, seg_model, test_dataset, test_loader, text_features):
                 anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
                                             size=args.img_size, mode='bilinear', align_corners=True)
                 anomaly_map = torch.softmax(anomaly_map, dim=1)[:, 1, :, :]
-                second_anomaly_maps.append(anomaly_map)
                 anomaly_maps.append(anomaly_map.cpu().numpy())
-
-            batch = image.shape[0]
-            second_input = []
-            for b in range(batch):
-                b_img = image[b].clone()
-                ori_img = b_img * 255
-                ori_img = ori_img.cpu().numpy().astype(np.uint8)
-                ori_img = np.transpose(ori_img, (1, 2, 0))
-
-                anomaly_map_combined = second_anomaly_maps[0]
-                for anomaly_map in second_anomaly_maps[1:]:
-                    anomaly_map_combined = anomaly_map_combined + anomaly_map
-                anomaly_map_combined = torch.clamp(anomaly_map_combined, min=0, max=1)
-
-                anomaly_map_combined = anomaly_map_combined.squeeze().cpu().detach().numpy()
-                mask_detected = np.stack((anomaly_map_combined,) * 3, axis=-1)
-
-                local_image = np.multiply(ori_img, mask_detected).astype(np.uint8)
-                local_image = Image.fromarray(local_image)
-                local_image = test_dataset.transform_x(local_image)
-                second_input += [local_image]
-            second_input = torch.stack(second_input)
-            second_input = second_input.to(device)
-
-            seg_adapt_med, det_adapt_med = seg_model.forward_second_adapter(second_input)
-            seg_adapt_med = seg_adapt_med[0, 1:, :].clone()
-            det_adapt_med = det_adapt_med[0, 1:, :].clone()
-
-            # image
-            anomaly_score_second = 0
-            patch_token = det_adapt_med
-            patch_token /= patch_token.norm(dim=-1, keepdim=True)
-            anomaly_map = (100.0 * patch_token @ text_features).unsqueeze(0)
-            anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
-            anomaly_score += anomaly_map.mean()
-            anomaly_score_second = anomaly_map.mean()
-            image_scores.append(anomaly_score.cpu())
-            image_scores_second.append(anomaly_score_second.cpu())
-
-            patch_token = seg_adapt_med
-            patch_token /= patch_token.norm(dim=-1, keepdim=True)
-            anomaly_map = (100.0 * patch_token @ text_features).unsqueeze(0)
-            B, L, C = anomaly_map.shape
-            H = int(np.sqrt(L))
-            anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
-                                        size=args.img_size, mode='bilinear', align_corners=True)
-            anomaly_map = torch.softmax(anomaly_map, dim=1)[:, 1, :, :]
-            anomaly_maps.append(anomaly_map.cpu().numpy())
             final_score_map = np.sum(anomaly_maps, axis=0)
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())
             segment_scores.append(final_score_map)
-            segment_scores_second.append(anomaly_map.cpu().numpy())
 
     gt_list = np.array(gt_list)
     gt_mask_list = np.asarray(gt_mask_list)
     gt_mask_list = (gt_mask_list > 0).astype(np.int_)
 
     segment_scores = np.array(segment_scores)
-    segment_scores_second = np.array(segment_scores_second)
     image_scores = np.array(image_scores)
-    image_scores_second = np.array(image_scores_second)
 
     segment_scores = (segment_scores - segment_scores.min()) / (segment_scores.max() - segment_scores.min())
-    segment_scores_second = (segment_scores_second - segment_scores_second.min()) / (
-                segment_scores_second.max() - segment_scores_second.min())
     image_scores = (image_scores - image_scores.min()) / (image_scores.max() - image_scores.min())
-    image_scores_second = (image_scores_second - image_scores_second.min()) / (
-                image_scores_second.max() - image_scores_second.min())
 
     img_roc_auc_det = roc_auc_score(gt_list, image_scores)
-    img_roc_auc_det_s = roc_auc_score(gt_list, image_scores_second)
-    print(f'{args.obj} Second AUC : {round(img_roc_auc_det_s, 4)}')
     print(f'{args.obj} Total AUC : {round(img_roc_auc_det, 4)}')
 
     seg_roc_auc = roc_auc_score(gt_mask_list.flatten(), segment_scores.flatten())
-    seg_roc_auc_s = roc_auc_score(gt_mask_list.flatten(), segment_scores_second.flatten())
-    print(f'{args.obj} Second pAUC : {round(seg_roc_auc_s, 4)}')
     print(f'{args.obj} Total pAUC : {round(seg_roc_auc, 4)}')
     return seg_roc_auc + img_roc_auc_det
 
