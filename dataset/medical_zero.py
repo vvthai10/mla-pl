@@ -7,8 +7,8 @@ import random
 import pandas as pd
 import numpy as np
 
-CLASS_NAMES = ['Brain', 'Liver', 'Retina_RESC', 'Retina_OCT2017', 'Chest', 'Histopathology']
-CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3}
+CLASS_NAMES = ['Brain', 'Liver', 'Retina_RESC'] #, 'Retina_OCT2017', 'Chest', 'Histopathology'
+CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1} #, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3
 
 
 class MedTrainDataset(Dataset):

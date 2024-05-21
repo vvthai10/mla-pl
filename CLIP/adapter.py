@@ -59,12 +59,13 @@ class CLIP_Inplanted(nn.Module):
         det_patch_tokens = []
 
         for i in range(24):
-            if i + 1 == 12:
-                x, attn = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
-                attn_out.append(attn)
-            else:
-                x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+            # if i + 1 == 12:
+            #     x, attn = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+            #     attn_out.append(attn)
+            # else:
+            x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
             if (i + 1) in self.features:
+                attn_out.append(attn_map)
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](x)
                 det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
 
@@ -75,10 +76,14 @@ class CLIP_Inplanted(nn.Module):
 
         B, C, L = attn_out[0].shape
         H = int(math.sqrt(L-1))
-        out_attn = torch.zeros([H, H]).to('cuda')
-
-        for i in range(len(attn)):
-            out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
+        # out_attn = torch.zeros([H, H]).to('cuda')
+        out_attn = []
+        for i in range(len(attn_out)):
+            layer_out_attn = []
+            for b in range(B):
+                layer_out_attn.append(attn_out[i][b, 0, 1:].view(H, H).unsqueeze(0))
+            out_attn.append(torch.cat(layer_out_attn))
+            # out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
         x = x.permute(1, 0, 2)
 
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]
@@ -90,7 +95,7 @@ class CLIP_Inplanted(nn.Module):
         if self.image_encoder.proj is not None:
             pooled = pooled @ self.image_encoder.proj
 
-        return pooled, seg_patch_tokens, det_patch_tokens
+        return pooled, out_attn, seg_patch_tokens, det_patch_tokens
 
 
 
