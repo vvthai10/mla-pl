@@ -44,7 +44,8 @@ def main():
     parser.add_argument('--pretrain', type=str, default='openai', help="laion400m, openai")
     parser.add_argument('--obj', type=str, default='Retina_RESC')
     parser.add_argument('--data_path', type=str, default='./data/')
-    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--ckpt_path', type=str, default='./ckpt/')
+    parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--img_size', type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
     parser.add_argument("--learning_rate", type=float, default=0.0001, help="learning rate")
@@ -96,16 +97,16 @@ def main():
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        if epoch % 2 == 0:
-            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
-            if score >= save_score:
-                save_score = score
-                ckp_path = f'./ckpt/zero-shot/{args.obj}.pth'
-                torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                            'det_adapters': model.det_adapters.state_dict()},
-                           ckp_path)
-                print(f'best epoch found: epoch {epoch} ')
-            print('\n')
+        # if epoch % 2 == 0:
+        #     score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+        #     if score >= save_score:
+        #         save_score = score
+        #         ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
+        #         torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+        #                     'det_adapters': model.det_adapters.state_dict()},
+        #                    ckp_path)
+        #         print(f'best epoch found: epoch {epoch} ')
+        #     print('\n')
 
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
@@ -116,15 +117,15 @@ def main():
 
             with torch.cuda.amp.autocast():
                 _, seg_patch_tokens, det_patch_tokens = model(image)
-                seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
-                det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
+                seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
+                det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
                 # image level
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
                 for layer in range(len(det_patch_tokens)):
                     det_patch_tokens[layer] = det_patch_tokens[layer] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    anomaly_map = (100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx]).unsqueeze(0)    
+                    anomaly_map = (100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx])
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -138,7 +139,7 @@ def main():
                     for layer in range(len(seg_patch_tokens)):
                         seg_patch_tokens[layer] = seg_patch_tokens[layer] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
                         # print(seg_patch_tokens[layer].shape, text_feature_list[seg_idx].shape) # torch.Size([289, 768]) torch.Size([768, 2])
-                        anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_feature_list[seg_idx]).unsqueeze(0)
+                        anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_feature_list[seg_idx])
                         B, L, C = anomaly_map.shape
                         H = int(np.sqrt(L))
                         anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
