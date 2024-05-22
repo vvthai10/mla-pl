@@ -107,16 +107,17 @@ def main():
     prompt_learner.train()
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        # print("\ttest:")
-        # score = test(args, model, prompt_learner, test_loader)
-        # if score >= save_score:
-        #     save_score = score
-        #     ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
-        #     torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-        #                 'det_adapters': model.det_adapters.state_dict()},
-        #                ckp_path)
-        #     print(f'best epoch found: epoch {epoch} ')
-        # print('\n')
+        print("\ttest:")
+        score = test(args, model, prompt_learner, test_loader)
+        if score >= save_score:
+            save_score = score
+            ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_epoch_{epoch}.pth'
+            torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+                        'det_adapters': model.det_adapters.state_dict(),
+                        "prompt_learner": prompt_learner.state_dict()},
+                       ckp_path)
+            print(f'best epoch found: epoch {epoch} ')
+        print('\n')
 
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
@@ -124,7 +125,7 @@ def main():
             image_label = image_label.squeeze(0).to(device)
 
             with torch.cuda.amp.autocast():
-                image_features, seg_patch_tokens, det_patch_tokens = model(image)
+                image_features, seg_patch_tokens, det_patch_tokens = model.encode_image_learn(image)
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
@@ -167,7 +168,7 @@ def main():
                     anomaly_map = torch.softmax(anomaly_map, dim=1)
                     seg_loss += loss_focal(anomaly_map, mask)
                     seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
-                    seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
+                    # seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
 
                 loss = det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
                 loss.requires_grad_(True)
@@ -199,7 +200,7 @@ def test(args, model, prompt_learner, test_loader):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = model(image)
+            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = model.encode_image_learn(image)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
