@@ -136,9 +136,9 @@ def main():
                 text_features = text_features.squeeze(0).t()
 
                 # features level
-                # text_probs = image_features @ text_features #.permute(0, 2, 1)
-                # text_probs = text_probs / 0.07
-                # text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
+                text_probs = image_features @ text_features #.permute(0, 2, 1)
+                text_probs = text_probs / 0.07
+                text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
 
                 # image level
                 det_loss = 0
@@ -168,9 +168,9 @@ def main():
                     anomaly_map = torch.softmax(anomaly_map, dim=1)
                     seg_loss += loss_focal(anomaly_map, mask)
                     seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
-                    # seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
+                    seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
 
-                loss = det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
+                loss = text_probs_loss + det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
                 loss.requires_grad_(True)
                 text_optimizer.zero_grad()
                 seg_optimizer.zero_grad()
