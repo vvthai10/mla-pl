@@ -19,6 +19,7 @@ from sklearn.metrics import precision_recall_curve
 from loss import FocalLoss, BinaryDiceLoss
 from utils import augment, encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
+import torch.optim as optim
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -52,7 +53,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--img_size', type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
-    parser.add_argument("--learning_rate", type=float, default=0.0001, help="learning rate")
+    parser.add_argument("--learning_rate", type=float, default=0.001, help="learning rate")
     parser.add_argument("--features_list", type=int, nargs="+", default=[6, 12, 18, 24], help="features used")
     parser.add_argument('--seed', type=int, default=111)
     args = parser.parse_args()
@@ -78,9 +79,17 @@ def main():
     model.to(device)
 
     # optimizer for only adapters
-    text_optimizer = torch.optim.Adam(list(prompt_learner.parameters()), lr=0.0005, betas=(0.5, 0.999))
+    text_optimizer = torch.optim.Adam(list(prompt_learner.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
+
+    # Scheduler
+    text_scheduler = optim.lr_scheduler.ReduceLROnPlateau(text_optimizer, mode='min', factor=0.1, patience=10,
+                                                          threshold=0.0001)
+    seg_scheduler = optim.lr_scheduler.ReduceLROnPlateau(seg_optimizer, mode='min', factor=0.1, patience=10,
+                                                         threshold=0.0001)
+    det_scheduler = optim.lr_scheduler.ReduceLROnPlateau(det_optimizer, mode='min', factor=0.1, patience=10,
+                                                         threshold=0.0001)
 
     # load dataset and loader
     kwargs = {'num_workers': 4, 'pin_memory': True} if use_cuda else {}
@@ -95,29 +104,29 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    # text_feature_list = [0]
+    text_feature_list = [0]
     # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     for i in [1,2,3]: #,-3,-2,-1
-    #         text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
-    #         text_feature_list.append(text_feature)
+    with torch.cuda.amp.autocast(), torch.no_grad():
+        for i in [1,2,3]: #,-3,-2,-1
+            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+            text_feature_list.append(text_feature)
 
     save_score = 0.0
     model.eval()
     prompt_learner.train()
     for epoch in range(args.epoch):
-        print('epoch', epoch, ':')
-        print("\ttest:")
-        score = test(args, model, prompt_learner, test_loader)
-        if score >= save_score:
-            save_score = score
-            ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_epoch_{epoch}.pth'
-            torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                        'det_adapters': model.det_adapters.state_dict(),
-                        "prompt_learner": prompt_learner.state_dict()},
-                       ckp_path)
-            print(f'best epoch found: epoch {epoch} ')
-        print('\n')
+        # print('epoch', epoch, ':')
+        # print("\ttest:")
+        # score = test(args, model, prompt_learner, test_loader)
+        # if score >= save_score:
+        #     save_score = score
+        #     ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_epoch_{epoch}.pth'
+        #     torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+        #                 'det_adapters': model.det_adapters.state_dict(),
+        #                 "prompt_learner": prompt_learner.state_dict()},
+        #                ckp_path)
+        #     print(f'best epoch found: epoch {epoch} ')
+        # print('\n')
 
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
@@ -134,20 +143,18 @@ def main():
                 text_features = model.encode_text_learn(prompts, tokenized_prompts, compound_prompts_text).float()
                 text_features = torch.stack(torch.chunk(text_features, dim=0, chunks=2), dim=1)
                 text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                text_features = text_features.squeeze(0).t()
+                text_features_cal = text_features.clone().squeeze(0).t()
 
                 # features level
-                text_probs = 100.0 * image_features @ text_features #.permute(0, 2, 1)
+                text_probs = 100.0 * image_features @ text_features_cal #.permute(0, 2, 1)
                 text_probs = torch.softmax(text_probs, dim=-1)
-                text_probs = torch.mean(text_probs, dim=-1)
-                # text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
-                text_probs_loss = loss_bce(text_probs, image_label)
+                text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
 
                 # image level
                 det_loss = 0
                 for layer in range(len(det_patch_tokens)):
                     det_patch_tokens[layer] = det_patch_tokens[layer] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    anomaly_map = (100.0 * det_patch_tokens[layer] @ text_features)
+                    anomaly_map = (100.0 * det_patch_tokens[layer] @ text_features_cal)
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -160,7 +167,7 @@ def main():
                     seg_patch_tokens[layer] = seg_patch_tokens[layer] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
                     # seg_patch_tokens[layer].shape torch.Size([289, 768])
                     # text_feature_list[seg_idx].shape) torch.Size([768, 2])
-                    anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_features)
+                    anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_features_cal)
                     B, L, C = anomaly_map.shape
                     H = int(np.sqrt(L))
                     anomaly_map = F.interpolate(
@@ -190,6 +197,10 @@ def main():
 
         # logs
         print("Loss: ", np.mean(loss_list))
+
+        text_scheduler.step(np.mean(loss_list))
+        seg_scheduler.step(np.mean(loss_list))
+        det_scheduler.step(np.mean(loss_list))
 
 
 def test(args, model, prompt_learner, test_loader):
