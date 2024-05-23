@@ -78,7 +78,7 @@ def main():
     model.to(device)
 
     # optimizer for only adapters
-    text_optimizer = torch.optim.Adam(list(prompt_learner.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
+    text_optimizer = torch.optim.Adam(list(prompt_learner.parameters()), lr=0.0005, betas=(0.5, 0.999))
     seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
 
@@ -126,6 +126,7 @@ def main():
 
             with torch.cuda.amp.autocast():
                 image_features, seg_patch_tokens, det_patch_tokens = model.encode_image_learn(image)
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
@@ -136,9 +137,11 @@ def main():
                 text_features = text_features.squeeze(0).t()
 
                 # features level
-                text_probs = image_features @ text_features #.permute(0, 2, 1)
-                text_probs = text_probs / 0.07
-                text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
+                text_probs = 100.0 * image_features @ text_features #.permute(0, 2, 1)
+                text_probs = torch.softmax(text_probs, dim=-1)
+                text_probs = torch.mean(text_probs, dim=-1)
+                # text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
+                text_probs_loss = loss_bce(text_probs, image_label)
 
                 # image level
                 det_loss = 0
