@@ -183,7 +183,7 @@ def main():
                         seg_loss += loss_focal(anomaly_map, mask)
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
 
-                    loss = det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
+                    loss = text_probs_loss + det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
                     loss.requires_grad_(True)
                     text_optimizer.zero_grad()
                     seg_optimizer.zero_grad()
@@ -193,7 +193,7 @@ def main():
                     seg_optimizer.step()
                     det_optimizer.step()
                 else:
-                    loss = det_loss  # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
+                    loss = text_probs_loss + det_loss  # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
                     loss.requires_grad_(True)
                     text_optimizer.zero_grad()
                     det_optimizer.zero_grad()
