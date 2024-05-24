@@ -50,10 +50,10 @@ def main():
     parser.add_argument('--obj', type=str, default='Retina_RESC')
     parser.add_argument('--data_path', type=str, default='./data/')
     parser.add_argument('--ckpt_path', type=str, default='./ckpt/')
-    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--img_size', type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
-    parser.add_argument("--learning_rate", type=float, default=0.001, help="learning rate")
+    parser.add_argument("--learning_rate", type=float, default=0.01, help="learning rate")
     parser.add_argument("--features_list", type=int, nargs="+", default=[6, 12, 18, 24], help="features used")
     parser.add_argument('--seed', type=int, default=111)
     args = parser.parse_args()
@@ -85,11 +85,11 @@ def main():
 
     # Scheduler
     text_scheduler = optim.lr_scheduler.ReduceLROnPlateau(text_optimizer, mode='min', factor=0.1, patience=5,
-                                                          threshold=0.0001)
+                                                          threshold=0.0095)
     seg_scheduler = optim.lr_scheduler.ReduceLROnPlateau(seg_optimizer, mode='min', factor=0.1, patience=5,
-                                                         threshold=0.0001)
+                                                         threshold=0.0095)
     det_scheduler = optim.lr_scheduler.ReduceLROnPlateau(det_optimizer, mode='min', factor=0.1, patience=5,
-                                                         threshold=0.0001)
+                                                         threshold=0.0095)
 
     # load dataset and loader
     kwargs = {'num_workers': 4, 'pin_memory': True} if use_cuda else {}
@@ -149,9 +149,9 @@ def main():
                 text_features_cal = text_features.clone().squeeze(0).t()
 
                 # features level
-                # text_probs = 100.0 * image_features @ text_features_cal #.permute(0, 2, 1)
-                # text_probs = torch.softmax(text_probs, dim=-1)
-                # text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
+                text_probs = 100.0 * image_features @ text_features_cal #.permute(0, 2, 1)
+                text_probs = torch.softmax(text_probs, dim=-1)
+                text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
 
                 # image level
                 det_loss = 0
@@ -182,7 +182,6 @@ def main():
                         anomaly_map = torch.softmax(anomaly_map, dim=1)
                         seg_loss += loss_focal(anomaly_map, mask)
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
-                        seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
 
                     loss = det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
                     loss.requires_grad_(True)
