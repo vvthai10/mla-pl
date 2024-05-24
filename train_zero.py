@@ -27,8 +27,8 @@ warnings.filterwarnings("ignore")
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
-CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1} #, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3
-CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC'} # , -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'
+CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3} #
+CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC', -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'} # ,
 
 
 def setup_seed(seed):
@@ -84,11 +84,11 @@ def main():
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
 
     # Scheduler
-    text_scheduler = optim.lr_scheduler.ReduceLROnPlateau(text_optimizer, mode='min', factor=0.1, patience=10,
+    text_scheduler = optim.lr_scheduler.ReduceLROnPlateau(text_optimizer, mode='min', factor=0.1, patience=5,
                                                           threshold=0.0001)
-    seg_scheduler = optim.lr_scheduler.ReduceLROnPlateau(seg_optimizer, mode='min', factor=0.1, patience=10,
+    seg_scheduler = optim.lr_scheduler.ReduceLROnPlateau(seg_optimizer, mode='min', factor=0.1, patience=5,
                                                          threshold=0.0001)
-    det_scheduler = optim.lr_scheduler.ReduceLROnPlateau(det_optimizer, mode='min', factor=0.1, patience=10,
+    det_scheduler = optim.lr_scheduler.ReduceLROnPlateau(det_optimizer, mode='min', factor=0.1, patience=5,
                                                          threshold=0.0001)
 
     # load dataset and loader
@@ -104,34 +104,37 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    text_feature_list = [0]
-    # text prompt
-    with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1,2,3]: #,-3,-2,-1
-            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
-            text_feature_list.append(text_feature)
+    # text_feature_list = [0]
+    # # text prompt
+    # with torch.cuda.amp.autocast(), torch.no_grad():
+    #     for i in [1,2,3]: #,-3,-2,-1
+    #         text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+    #         text_feature_list.append(text_feature)
 
     save_score = 0.0
     model.eval()
     prompt_learner.train()
     for epoch in range(args.epoch):
-        # print('epoch', epoch, ':')
-        # print("\ttest:")
-        # score = test(args, model, prompt_learner, test_loader)
-        # if score >= save_score:
-        #     save_score = score
-        #     ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_epoch_{epoch}.pth'
-        #     torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-        #                 'det_adapters': model.det_adapters.state_dict(),
-        #                 "prompt_learner": prompt_learner.state_dict()},
-        #                ckp_path)
-        #     print(f'best epoch found: epoch {epoch} ')
-        # print('\n')
+        print('epoch', epoch, ':')
+        if epoch != 0:
+            print("\ttest:")
+            score = test(args, model, prompt_learner, test_loader)
+            if score >= save_score:
+                save_score = score
+                ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_epoch_{epoch}.pth'
+                torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+                            'det_adapters': model.det_adapters.state_dict(),
+                            "prompt_learner": prompt_learner.state_dict()},
+                           ckp_path)
+                print(f'best epoch found: epoch {epoch} ')
+            print('\n')
 
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
             image = image.squeeze(0).to(device)
             image_label = image_label.squeeze(0).to(device)
+
+            seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
                 image_features, seg_patch_tokens, det_patch_tokens = model.encode_image_learn(image)
@@ -146,9 +149,9 @@ def main():
                 text_features_cal = text_features.clone().squeeze(0).t()
 
                 # features level
-                text_probs = 100.0 * image_features @ text_features_cal #.permute(0, 2, 1)
-                text_probs = torch.softmax(text_probs, dim=-1)
-                text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
+                # text_probs = 100.0 * image_features @ text_features_cal #.permute(0, 2, 1)
+                # text_probs = torch.softmax(text_probs, dim=-1)
+                # text_probs_loss = F.cross_entropy(text_probs.squeeze(), image_label.long())
 
                 # image level
                 det_loss = 0
@@ -160,35 +163,44 @@ def main():
                     det_loss += loss_bce(anomaly_score, image_label)
 
                 # pixel level
-                seg_loss = 0
-                mask = mask.squeeze(0).to(device)
-                mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
-                for layer in range(len(seg_patch_tokens)):
-                    seg_patch_tokens[layer] = seg_patch_tokens[layer] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    # seg_patch_tokens[layer].shape torch.Size([289, 768])
-                    # text_feature_list[seg_idx].shape) torch.Size([768, 2])
-                    anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_features_cal)
-                    B, L, C = anomaly_map.shape
-                    H = int(np.sqrt(L))
-                    anomaly_map = F.interpolate(
-                        anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
-                        size=args.img_size,
-                        mode='bilinear',
-                        align_corners=True)
-                    anomaly_map = torch.softmax(anomaly_map, dim=1)
-                    seg_loss += loss_focal(anomaly_map, mask)
-                    seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
-                    seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
+                if seg_idx > 0:
+                    seg_loss = 0
+                    mask = mask.squeeze(0).to(device)
+                    mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
+                    for layer in range(len(seg_patch_tokens)):
+                        seg_patch_tokens[layer] = seg_patch_tokens[layer] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
+                        # seg_patch_tokens[layer].shape torch.Size([289, 768])
+                        # text_feature_list[seg_idx].shape) torch.Size([768, 2])
+                        anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_features_cal)
+                        B, L, C = anomaly_map.shape
+                        H = int(np.sqrt(L))
+                        anomaly_map = F.interpolate(
+                            anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
+                            size=args.img_size,
+                            mode='bilinear',
+                            align_corners=True)
+                        anomaly_map = torch.softmax(anomaly_map, dim=1)
+                        seg_loss += loss_focal(anomaly_map, mask)
+                        seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
+                        seg_loss += loss_dice(anomaly_map[:, 0, :, :], 1 - mask)
 
-                loss = text_probs_loss + det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
-                loss.requires_grad_(True)
-                text_optimizer.zero_grad()
-                seg_optimizer.zero_grad()
-                det_optimizer.zero_grad()
-                loss.backward()
-                text_optimizer.step()
-                seg_optimizer.step()
-                det_optimizer.step()
+                    loss = det_loss + seg_loss # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
+                    loss.requires_grad_(True)
+                    text_optimizer.zero_grad()
+                    seg_optimizer.zero_grad()
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    text_optimizer.step()
+                    seg_optimizer.step()
+                    det_optimizer.step()
+                else:
+                    loss = det_loss  # = focal(seg_out, mask) + bce(det_out, y) text_probs_loss +
+                    loss.requires_grad_(True)
+                    text_optimizer.zero_grad()
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    text_optimizer.step()
+                    det_optimizer.step()
 
                 loss_list.append(loss.item())
 
