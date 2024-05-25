@@ -9,11 +9,11 @@ from CLIP.tokenizer import SimpleTokenizer as _Tokenizer
 from copy import deepcopy
 import torch.nn as nn
 
-
 _tokenizer = _Tokenizer()
 
 
-def tokenize(texts: Union[str, List[str]], context_length: int = 77, truncate: bool = False) -> Union[torch.IntTensor, torch.LongTensor]:
+def tokenize(texts: Union[str, List[str]], context_length: int = 77, truncate: bool = False) -> Union[
+    torch.IntTensor, torch.LongTensor]:
     """
     Returns the tokenized representation of given input string(s)
 
@@ -55,24 +55,27 @@ def tokenize(texts: Union[str, List[str]], context_length: int = 77, truncate: b
 
     return result
 
+
 def _get_clones(module, N):
     return nn.ModuleList([deepcopy(module) for i in range(N)])
 
+
 class AnomalyCLIP_PromptLearner(nn.Module):
-    def __init__(self, model, design_details):
+    def __init__(self, device, model, prompt_parameters):
         super().__init__()
+        self.device = device
+        model.to('cpu')
         classnames = ["object"]
         self.n_cls = len(classnames)
-        self.n_ctx = design_details["Prompt_length"]
+        self.n_ctx = prompt_parameters["Prompt_length"]
         n_ctx_pos = self.n_ctx
         n_ctx_neg = self.n_ctx
-        self.text_encoder_n_ctx = design_details["learnabel_text_embedding_length"]
+        self.text_encoder_n_ctx = prompt_parameters["learnabel_text_embedding_length"]
         ctx_init_pos = ""
         ctx_init_neg = ""
         dtype = model.transformer.get_cast_dtype()
 
         ctx_dim = model.ln_final.weight.shape[0]
-
 
         self.classnames = classnames
 
@@ -133,7 +136,7 @@ class AnomalyCLIP_PromptLearner(nn.Module):
             nn.init.normal_(ctx_vectors_neg, std=0.02)
             prompt_prefix_pos = " ".join(["X"] * n_ctx_pos)
             prompt_prefix_neg = " ".join(["X"] * n_ctx_neg)
-        self.compound_prompts_depth = design_details["learnabel_text_embedding_depth"]
+        self.compound_prompts_depth = prompt_parameters["learnabel_text_embedding_depth"]
         self.compound_prompts_text = nn.ParameterList([nn.Parameter(torch.empty(self.text_encoder_n_ctx, ctx_dim))
                                                        for _ in range(self.compound_prompts_depth - 1)])
         for single_para in self.compound_prompts_text:
@@ -143,16 +146,16 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         single_layer = nn.Linear(ctx_dim, 896)
         self.compound_prompt_projections = _get_clones(single_layer, self.compound_prompts_depth - 1)
 
-
         self.ctx_pos = nn.Parameter(ctx_vectors_pos)  # to be optimized
         self.ctx_neg = nn.Parameter(ctx_vectors_neg)  # to be optimized
 
         classnames = [name.replace("_", " ") for name in classnames]
         name_lens = [len(_tokenizer.encode(name)) for name in classnames]
 
-
-        prompts_pos = [prompt_prefix_pos +  " " + template.format(name )+ "." for template in self.state_normal_list for name in classnames]
-        prompts_neg = [prompt_prefix_neg +  " " + template.format(name )+ "." for template in self.state_anomaly_list for name in classnames]
+        prompts_pos = [prompt_prefix_pos + " " + template.format(name) + "." for template in self.state_normal_list for
+                       name in classnames]
+        prompts_neg = [prompt_prefix_neg + " " + template.format(name) + "." for template in self.state_anomaly_list for
+                       name in classnames]
 
         tokenized_prompts_pos = []
         tokenized_prompts_neg = []
@@ -172,10 +175,9 @@ class AnomalyCLIP_PromptLearner(nn.Module):
             embedding_pos = embedding_pos.reshape(normal_num, self.n_cls, l, d).permute(1, 0, 2, 3)
             embedding_neg = embedding_neg.reshape(anormaly_num, self.n_cls, l, d).permute(1, 0, 2, 3)
 
-
-        self.register_buffer("token_prefix_pos", embedding_pos[:, :, :1, :] )
-        self.register_buffer("token_suffix_pos", embedding_pos[:, : ,1 + n_ctx_pos:, :])
-        self.register_buffer("token_prefix_neg", embedding_neg[: ,:, :1, :])
+        self.register_buffer("token_prefix_pos", embedding_pos[:, :, :1, :])
+        self.register_buffer("token_suffix_pos", embedding_pos[:, :, 1 + n_ctx_pos:, :])
+        self.register_buffer("token_prefix_neg", embedding_neg[:, :, :1, :])
         self.register_buffer("token_suffix_neg", embedding_neg[:, :, 1 + n_ctx_neg:, :])
 
         n, d = tokenized_prompts_pos.shape
@@ -191,9 +193,9 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         self.register_buffer("tokenized_prompts_neg", tokenized_prompts_neg)
         print("tokenized_prompts shape", self.tokenized_prompts_pos.shape, self.tokenized_prompts_neg.shape)
 
+        model.to(device)
 
-
-    def forward(self, cls_id =None):
+    def forward(self, cls_id=None):
 
         ctx_pos = self.ctx_pos
         ctx_neg = self.ctx_neg
@@ -231,12 +233,10 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         prompts_neg = prompts_neg.reshape(-1, l, d)
         prompts = torch.cat([prompts_pos, prompts_neg], dim=0)
 
-
         _, l, d = self.tokenized_prompts_pos.shape
-        tokenized_prompts_pos = self.tokenized_prompts_pos.reshape(-1,  d)
+        tokenized_prompts_pos = self.tokenized_prompts_pos.reshape(-1, d)
         _, l, d = self.tokenized_prompts_neg.shape
-        tokenized_prompts_neg = self.tokenized_prompts_neg.reshape(-1,  d)
-        tokenized_prompts = torch.cat((tokenized_prompts_pos, tokenized_prompts_neg), dim = 0)
-
+        tokenized_prompts_neg = self.tokenized_prompts_neg.reshape(-1, d)
+        tokenized_prompts = torch.cat((tokenized_prompts_pos, tokenized_prompts_neg), dim=0)
 
         return prompts, tokenized_prompts, self.compound_prompts_text
