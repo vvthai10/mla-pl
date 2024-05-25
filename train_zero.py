@@ -25,8 +25,8 @@ warnings.filterwarnings("ignore")
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
-CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1} #, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3
-CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC'} # , -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'
+CLASS_INDEX = {'Brain':3, 'Liver':2, 'Retina_RESC':1, 'Retina_OCT2017':-1, 'Chest':-2, 'Histopathology':-3} #
+CLASS_INDEX_INV = {3:'Brain', 2:'Liver', 1:'Retina_RESC', -1:'Retina_OCT2017', -2:'Chest', -3:'Histopathology'} #
 
 
 def setup_seed(seed):
@@ -62,6 +62,10 @@ def main():
     model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(device)
     model.eval()
 
+    checkpoint = torch.load(os.path.join(f'./ckpt_ori/zero-shot/Liver.pth'))
+    model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
+    model.det_adapters.load_state_dict(checkpoint["det_adapters"])
+
     for name, param in model.named_parameters():
         param.requires_grad = True
 
@@ -89,7 +93,7 @@ def main():
     text_feature_list = [0]
     # text prompt
     with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1,2,3]: #,-3,-2,-1
+        for i in [1,2,3,-3,-2,-1]: #
             text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
             text_feature_list.append(text_feature)
 
@@ -97,16 +101,16 @@ def main():
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        # if epoch % 2 == 0:
-        #     score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
-        #     if score >= save_score:
-        #         save_score = score
-        #         ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
-        #         torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-        #                     'det_adapters': model.det_adapters.state_dict()},
-        #                    ckp_path)
-        #         print(f'best epoch found: epoch {epoch} ')
-        #     print('\n')
+        if epoch >= 0:
+            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            if score >= save_score:
+                save_score = score
+                ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
+                torch.save({'seg_adapters': model.seg_adapters.state_dict(),
+                            'det_adapters': model.det_adapters.state_dict()},
+                           ckp_path)
+                print(f'best epoch found: epoch {epoch} ')
+            print('\n')
 
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
@@ -149,19 +153,20 @@ def main():
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
                     
                     loss = seg_loss + det_loss # = focal(seg_out, mask) + bce(det_out, y)
-                    loss.requires_grad_(True)
-                    seg_optimizer.zero_grad()
-                    det_optimizer.zero_grad()
-                    loss.backward()
-                    seg_optimizer.step()
-                    det_optimizer.step()
+                    # loss.requires_grad_(True)
+                    # seg_optimizer.zero_grad()
+                    # det_optimizer.zero_grad()
+                    # loss.backward()
+                    # seg_optimizer.step()
+                    # det_optimizer.step()
 
                 else:
-                    loss = det_loss
-                    loss.requires_grad_(True)
-                    det_optimizer.zero_grad()
-                    loss.backward()
-                    det_optimizer.step()
+                    pass
+                    # loss = det_loss
+                    # loss.requires_grad_(True)
+                    # det_optimizer.zero_grad()
+                    # loss.backward()
+                    # det_optimizer.step()
 
                 loss_list.append(loss.item())
 
