@@ -93,79 +93,42 @@ class PatchDropout(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(
-            self,
-            dim,
-            num_heads=8,
-            qkv_bias=True,
-            scaled_cosine=False,
-            scale_heads=False,
-            logit_scale_max=math.log(1. / 0.01),
-            attn_drop=0.,
-            proj_drop=0.
-    ):
+    def __init__(self, out_dim, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., settings=''):
         super().__init__()
-        self.scaled_cosine = scaled_cosine
-        self.scale_heads = scale_heads
-        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
-        self.logit_scale_max = logit_scale_max
+        head_dim = dim // num_heads
+        self.scale = qk_scale or head_dim ** -0.5
 
-        # keeping in_proj in this form (instead of nn.Linear) to match weight scheme of original
-        self.in_proj_weight = nn.Parameter(torch.randn((dim * 3, dim)) * self.scale)
-        if qkv_bias:
-            self.in_proj_bias = nn.Parameter(torch.zeros(dim * 3))
-        else:
-            self.in_proj_bias = None
-
-        if self.scaled_cosine:
-            self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))))
-        else:
-            self.logit_scale = None
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
-        if self.scale_heads:
-            self.head_scale = nn.Parameter(torch.ones((num_heads, 1, 1)))
-        else:
-            self.head_scale = None
-        self.out_proj = nn.Linear(dim, dim)
-        self.out_drop = nn.Dropout(proj_drop)
+        self.proj = nn.Linear(out_dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.settings = settings
 
-    def forward(self, x, attn_mask: Optional[torch.Tensor] = None):
-        L, N, C = x.shape
-        q, k, v = F.linear(x, self.in_proj_weight, self.in_proj_bias).chunk(3, dim=-1)
-        q = q.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
-        k = k.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
-        v = v.contiguous().view(L, N * self.num_heads, -1).transpose(0, 1)
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
-        if self.logit_scale is not None:
-            attn = torch.bmm(F.normalize(q, dim=-1), F.normalize(k, dim=-1).transpose(-1, -2))
-            logit_scale = torch.clamp(self.logit_scale, max=self.logit_scale_max).exp()
-            attn = attn.view(N, self.num_heads, L, L) * logit_scale
-            attn = attn.view(-1, L, L)
-        else:
-            q = q * self.scale
-            attn = torch.bmm(q, k.transpose(-1, -2))
+        # original self-attention for the original path
+        attn_ori = (q @ k.transpose(-2, -1)) * self.scale
+        attn_ori = attn_ori.softmax(dim=-1)
+        attn_ori = self.attn_drop(attn_ori)
 
-        if attn_mask is not None:
-            if attn_mask.dtype == torch.bool:
-                new_attn_mask = torch.zeros_like(attn_mask, dtype=q.dtype)
-                new_attn_mask.masked_fill_(attn_mask, float("-inf"))
-                attn_mask = new_attn_mask
-            attn += attn_mask
+        # replace k & q by v
+        k = v
+        q = k
 
-        attn = attn.softmax(dim=-1)
+        # self-attention, higher temperate for resnets performs better
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = (attn).softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x = torch.bmm(attn, v)
-        if self.head_scale is not None:
-            x = x.view(N, self.num_heads, L, C) * self.head_scale
-            x = x.view(-1, L, C)
-        x = x.transpose(0, 1).reshape(L, N, C)
-        x = self.out_proj(x)
-        x = self.out_drop(x)
-        return x
+        x_ori = (attn_ori @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj_drop(self.proj(x))
+        x_ori = self.proj_drop(self.proj(x_ori))
+        return [x, x_ori]
 
 
 class AttentionalPooler(nn.Module):
@@ -195,66 +158,68 @@ class AttentionalPooler(nn.Module):
 
 
 class ResidualAttentionBlock(nn.Module):
-    def __init__(
-            self,
-            d_model: int,
-            n_head: int,
-            mlp_ratio: float = 4.0,
-            ls_init_value: float = None,
-            act_layer: Callable = nn.GELU,
-            norm_layer: Callable = LayerNorm,
-            is_cross_attention: bool = False,
-            idx: int = 12,
-    ):
+    def __init__(self, d_model: int, n_head: int, attn_mask: torch.Tensor = None, design_details=None):
         super().__init__()
 
-        self.idx = idx
-
-        self.ln_1 = norm_layer(d_model)
         self.attn = nn.MultiheadAttention(d_model, n_head)
-        self.ls_1 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
-        if is_cross_attention:
-            self.ln_1_kv = norm_layer(d_model)
-
-        self.ln_2 = norm_layer(d_model)
-        mlp_width = int(d_model * mlp_ratio)
+        self.ln_1 = LayerNorm(d_model)
         self.mlp = nn.Sequential(OrderedDict([
-            ("c_fc", nn.Linear(d_model, mlp_width)),
-            ("gelu", act_layer()),
-            ("c_proj", nn.Linear(mlp_width, d_model))
+            ("c_fc", nn.Linear(d_model, d_model * 4)),
+            ("gelu", QuickGELU()),
+            ("c_proj", nn.Linear(d_model * 4, d_model))
         ]))
-        self.ls_2 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
+        self.ln_2 = LayerNorm(d_model)
+        self.attn_mask = attn_mask
 
-    def attention(
-            self,
-            q_x: torch.Tensor,
-            k_x: Optional[torch.Tensor] = None,
-            v_x: Optional[torch.Tensor] = None,
-            attn_mask: Optional[torch.Tensor] = None,
-    ):
-        k_x = k_x if k_x is not None else q_x
-        v_x = v_x if v_x is not None else q_x
+    def attention(self, x: torch.Tensor):
+        self.attn_mask = self.attn_mask.to(dtype=x.dtype, device=x.device) if self.attn_mask is not None else None
+        if isinstance(self.attn, Attention):
+            x = x.transpose(0, 1)
+            x, x_ori = self.attn(x)
+            return [x.transpose(0, 1), x_ori.transpose(0, 1)]
+        else:
+            return self.attn(x, x, x, need_weights=False, attn_mask=self.attn_mask)[0]
 
-        attn_mask = attn_mask.to(q_x.dtype) if attn_mask is not None else None
-        return self.attn(
-            q_x, k_x, v_x, need_weights=True, attn_mask=attn_mask
-        )
+    def forward(self, x, whole=False, ffn=False):
+        # print("xxxxx",x.shape)
+        # dual paths for blocks deeper than "d"
 
-    def forward(
-            self,
-            q_x: torch.Tensor,
-            k_x: Optional[torch.Tensor] = None,
-            v_x: Optional[torch.Tensor] = None,
-            attn_mask: Optional[torch.Tensor] = None,
-    ):
-        k_x = self.ln_1_kv(k_x) if hasattr(self, "ln_1_kv") and k_x is not None else None
-        v_x = self.ln_1_kv(v_x) if hasattr(self, "ln_1_kv") and v_x is not None else None
+        if isinstance(self.attn, Attention):
+            if isinstance(x, list):
+                if not ffn:
+                    x, x_ori = x
+                    x_res = self.attention(self.ln_1(x_ori))
+                    x_res, x_ori_res = x_res
+                    x_ori += x_ori_res
+                    x_ori = x_ori + self.mlp(self.ln_2(x_ori))
+                    x += x_res  # skip ffn for the new path
+                    # print('hellloooo')
+                    return [x, x_ori]
+                else:
+                    x, x_ori_1 = x
+                    x_res = self.attention(self.ln_1(x_ori_1))
+                    x_res, x_ori_res = x_res
+                    x_ori = x_ori_1 + x_ori_res
+                    x_ori = x_ori + self.mlp(self.ln_2(x_ori))
+                    x += x_res  # skip ffn for the new path
+                    x = x_res + x_ori_1
+                    x = x + self.mlp(self.ln_2(x))
+                    return [x, x_ori]
+            # start of dual path
+            else:
+                x_res = self.attention(self.ln_1(x))
+                if isinstance(x_res, list):
+                    x_res, x_ori_res = x_res
+                    x_ori = x + x_ori_res
+                    x_ori = x_ori + self.mlp(self.ln_2(x_ori))
+                    x += x_res
+                    return [x, x_ori]
 
-        tmp, attn = self.attention(q_x=self.ln_1(q_x), k_x=k_x, v_x=v_x, attn_mask=attn_mask)
-        x = q_x + self.ls_1(tmp)
-        x = x + self.ls_2(self.mlp(self.ln_2(x)))
-        return x, attn
-
+        # singl path before "d"
+        else:
+            x = x + self.attention(self.ln_1(x))
+            x = x + self.mlp(self.ln_2(x))
+        return x
 
 class CustomResidualAttentionBlock(nn.Module):
     def __init__(
@@ -481,6 +446,17 @@ class VisionTransformer(nn.Module):
             return x.mean(dim=1), x
         else:
             return x[:, 0], x[:, 1:]
+
+    @torch.no_grad()
+    def DAPM_replace(self, DPAM_layer):
+        if DPAM_layer is not None:
+            for i in range(1, DPAM_layer):
+                self.attn = Attention(self.embed_dim, self.embed_dim, self.num_heads, True)
+                self.attn.qkv.weight.data = self.transformer.resblocks[-i].attn.in_proj_weight.clone()
+                self.attn.qkv.bias.data = self.transformer.resblocks[-i].attn.in_proj_bias.clone()
+                self.attn.proj.weight.data = self.transformer.resblocks[-i].attn.out_proj.weight.clone()
+                self.attn.proj.bias.data = self.transformer.resblocks[-i].attn.out_proj.bias.clone()
+                self.transformer.resblocks[-i].attn = self.attn
 
     def forward(self, x: torch.Tensor, out_layers: list):
 
