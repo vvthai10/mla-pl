@@ -279,9 +279,7 @@ class Transformer(nn.Module):
         self.grad_checkpointing = False
 
         self.resblocks = nn.ModuleList([
-            ResidualAttentionBlock(
-                width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer,
-                idx=idx)
+            ResidualAttentionBlock(width, heads, mlp_ratio)
             for idx in range(layers)
         ])
 
@@ -371,6 +369,9 @@ class VisionTransformer(nn.Module):
             act_layer=act_layer,
             norm_layer=norm_layer,
         )
+        self.attn = None
+        self.embed_dim = width
+        self.num_heads = heads
 
         self.global_average_pool = global_average_pool
         if attentional_pool:
@@ -512,6 +513,114 @@ class VisionTransformer(nn.Module):
 
         return pooled, patch_tokens
 
+class ResidualAttentionBlockForText(nn.Module):
+    def __init__(
+            self,
+            d_model: int,
+            n_head: int,
+            mlp_ratio: float = 4.0,
+            ls_init_value: float = None,
+            act_layer: Callable = nn.GELU,
+            norm_layer: Callable = LayerNorm,
+            is_cross_attention: bool = False,
+            idx: int = 12,
+    ):
+        super().__init__()
+
+        self.idx = idx
+
+        self.ln_1 = norm_layer(d_model)
+        self.attn = nn.MultiheadAttention(d_model, n_head)
+        self.ls_1 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
+        if is_cross_attention:
+            self.ln_1_kv = norm_layer(d_model)
+
+        self.ln_2 = norm_layer(d_model)
+        mlp_width = int(d_model * mlp_ratio)
+        self.mlp = nn.Sequential(OrderedDict([
+            ("c_fc", nn.Linear(d_model, mlp_width)),
+            ("gelu", act_layer()),
+            ("c_proj", nn.Linear(mlp_width, d_model))
+        ]))
+        self.ls_2 = LayerScale(d_model, ls_init_value) if ls_init_value is not None else nn.Identity()
+
+    def attention(
+            self,
+            q_x: torch.Tensor,
+            k_x: Optional[torch.Tensor] = None,
+            v_x: Optional[torch.Tensor] = None,
+            attn_mask: Optional[torch.Tensor] = None,
+    ):
+        k_x = k_x if k_x is not None else q_x
+        v_x = v_x if v_x is not None else q_x
+
+        attn_mask = attn_mask.to(q_x.dtype) if attn_mask is not None else None
+        return self.attn(
+            q_x, k_x, v_x, need_weights=True, attn_mask=attn_mask
+        )
+
+    def forward(
+            self,
+            q_x: torch.Tensor,
+            k_x: Optional[torch.Tensor] = None,
+            v_x: Optional[torch.Tensor] = None,
+            attn_mask: Optional[torch.Tensor] = None,
+    ):
+        k_x = self.ln_1_kv(k_x) if hasattr(self, "ln_1_kv") and k_x is not None else None
+        v_x = self.ln_1_kv(v_x) if hasattr(self, "ln_1_kv") and v_x is not None else None
+
+        tmp, attn = self.attention(q_x=self.ln_1(q_x), k_x=k_x, v_x=v_x, attn_mask=attn_mask)
+        x = q_x + self.ls_1(tmp)
+        x = x + self.ls_2(self.mlp(self.ln_2(x)))
+        return x, attn
+
+class TransformerForText(nn.Module):
+    def __init__(
+            self,
+            width: int,
+            layers: int,
+            heads: int,
+            mlp_ratio: float = 4.0,
+            ls_init_value: float = None,
+            act_layer: Callable = nn.GELU,
+            norm_layer: Callable = LayerNorm,
+    ):
+        super().__init__()
+        self.width = width
+        self.layers = layers
+        self.grad_checkpointing = False
+
+        self.resblocks = nn.ModuleList([
+            ResidualAttentionBlockForText(
+                width, heads, mlp_ratio, ls_init_value=ls_init_value, act_layer=act_layer, norm_layer=norm_layer,
+                idx=idx)
+            for idx in range(layers)
+        ])
+
+    def get_cast_dtype(self) -> torch.dtype:
+        return self.resblocks[0].mlp.c_fc.weight.dtype
+
+    def forward(self, x: torch.Tensor, out_layers: list = [3, 6, 9],
+                attn_mask: Optional[torch.Tensor] = None):
+        idx = 0
+        out_attn = []
+        # out_tokens = x
+        out_tokens = []
+        for r in self.resblocks:
+            idx += 1
+            if self.grad_checkpointing and not torch.jit.is_scripting():
+                # TODO: handle kwargs https://github.com/pytorch/pytorch/issues/79887#issuecomment-1161758372
+                x = checkpoint(r, x, None, None, attn_mask)
+            else:
+                if idx == 12:
+                    x, attn = r(x, attn_mask=attn_mask)
+                    out_attn.append(attn)
+                else:
+                    x, attn_tmp = r(x, attn_mask=attn_mask)
+                if idx in out_layers:
+                    out_tokens.append(x)
+                    # out_tokens = x
+        return x, out_attn, out_tokens
 
 class TextTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
@@ -550,7 +659,7 @@ class TextTransformer(nn.Module):
 
         self.token_embedding = nn.Embedding(vocab_size, width)
         self.positional_embedding = nn.Parameter(torch.empty(self.num_pos, width))
-        self.transformer = Transformer(
+        self.transformer = TransformerForText(
             width=width,
             layers=layers,
             heads=heads,
