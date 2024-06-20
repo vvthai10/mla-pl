@@ -18,6 +18,7 @@ from sklearn.metrics import precision_recall_curve
 from loss import FocalLoss, BinaryDiceLoss
 from utils import augment, encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
+from visualization import visualizer
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -45,6 +46,7 @@ def main():
     parser.add_argument('--obj', type=str, default='Retina_RESC')
     parser.add_argument('--data_path', type=str, default='./data/')
     parser.add_argument('--ckpt_path', type=str, default='./ckpt/')
+    parser.add_argument('--save_path', type=str, default='./results/')
     parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--img_size', type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
@@ -61,10 +63,6 @@ def main():
 
     model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(device)
     model.eval()
-
-    checkpoint = torch.load(os.path.join(f'./ckpt_ori/zero-shot/Liver.pth'))
-    model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
-    model.det_adapters.load_state_dict(checkpoint["det_adapters"])
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -153,30 +151,28 @@ def main():
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
                     
                     loss = seg_loss + det_loss # = focal(seg_out, mask) + bce(det_out, y)
-                    # loss.requires_grad_(True)
-                    # seg_optimizer.zero_grad()
-                    # det_optimizer.zero_grad()
-                    # loss.backward()
-                    # seg_optimizer.step()
-                    # det_optimizer.step()
+                    loss.requires_grad_(True)
+                    seg_optimizer.zero_grad()
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    seg_optimizer.step()
+                    det_optimizer.step()
 
                 else:
-                    pass
-                    # loss = det_loss
-                    # loss.requires_grad_(True)
-                    # det_optimizer.zero_grad()
-                    # loss.backward()
-                    # det_optimizer.step()
+                    loss = det_loss
+                    loss.requires_grad_(True)
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    det_optimizer.step()
 
                 loss_list.append(loss.item())
 
         train_dataset.shuffle_dataset()
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=True, **kwargs)
 
-        # logs
+        # logs y
         print("Loss: ", np.mean(loss_list))
         
-
 
 
 def test(args, seg_model, test_loader, text_features):
@@ -185,7 +181,7 @@ def test(args, seg_model, test_loader, text_features):
     image_scores = []
     segment_scores = []
     
-    for (image, y, mask) in tqdm(test_loader):
+    for (image, y, mask, image_path, cls_name) in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
@@ -221,6 +217,7 @@ def test(args, seg_model, test_loader, text_features):
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())
             segment_scores.append(final_score_map)
+            visualizer(image_path, final_score_map, args.img_size, args.save_path, cls_name)
         
         
 

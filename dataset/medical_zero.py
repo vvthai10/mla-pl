@@ -212,7 +212,7 @@ class MedTestDataset(Dataset):
             mask = Image.open(mask).convert('L')
             mask = self.transform_mask(mask)
             y = 1
-        return x_img, y, mask
+        return x_img, y, mask, self.x[idx], self.class_name
 
     def __len__(self):
         return len(self.x)
