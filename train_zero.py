@@ -38,7 +38,6 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-
 def main():
     parser = argparse.ArgumentParser(description='Testing')
     parser.add_argument('--model_name', type=str, default='ViT-L-14-336', help="ViT-B-16-plus-240, ViT-L-14-336")
@@ -100,7 +99,7 @@ def main():
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
         if epoch >= 0:
-            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], epoch)
             if score >= save_score:
                 save_score = score
                 ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
@@ -175,7 +174,7 @@ def main():
         
 
 
-def test(args, seg_model, test_loader, text_features):
+def test(args, seg_model, test_loader, text_features, epoch):
     gt_list = []
     gt_mask_list = []
     image_scores = []
@@ -217,7 +216,8 @@ def test(args, seg_model, test_loader, text_features):
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())
             segment_scores.append(final_score_map)
-            visualizer(image_path, final_score_map, args.img_size, args.save_path, cls_name)
+            save_path = args.save_path + str(epoch)
+            visualizer(image_path, final_score_map, args.img_size, save_path, cls_name)
         
         
 
