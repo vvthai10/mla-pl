@@ -54,49 +54,24 @@ class CLIP_Inplanted(nn.Module):
 
         x = x.permute(1, 0, 2)
 
-        attn_out = []
         seg_patch_tokens = []
         det_patch_tokens = []
 
         for i in range(24):
-            if i + 1 == 12:
-                x, attn = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
-                attn_out.append(attn)
-            else:
-                x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+            x = self.image_encoder.transformer.resblocks[i](x)
             if (i + 1) in self.features:
-                seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](x)
-                det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
+                seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](0.5*x[0] + 0.5*x[1])
+                det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](0.5*x[0] + 0.5*x[1])
 
-                x = 0.8 * x + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
+                x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
 
                 seg_patch_tokens.append(seg_adapt_med)
                 det_patch_tokens.append(det_adapt_med)
 
-        B, C, L = attn_out[0].shape
-        H = int(math.sqrt(L-1))
-        out_attn = torch.zeros([H, H]).to('cuda')
-
-        # out_attn = torch.zeros([H, H]).to('cuda')
-        out_attn = []
-        for i in range(len(attn_out)):
-            layer_out_attn = []
-            for b in range(B):
-                layer_out_attn.append(attn_out[i][b, 0, 1:].view(H, H).unsqueeze(0))
-            out_attn.append(torch.cat(layer_out_attn))
-            # out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
-        x = x.permute(1, 0, 2)
-
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]
         det_patch_tokens = [det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))]
 
-        pooled, tokens = self.image_encoder._global_pool(x)
-        pooled = self.image_encoder.ln_post(pooled)
-
-        if self.image_encoder.proj is not None:
-            pooled = pooled @ self.image_encoder.proj
-
-        return pooled, seg_patch_tokens, det_patch_tokens
+        return None, seg_patch_tokens, det_patch_tokens
 
 
 

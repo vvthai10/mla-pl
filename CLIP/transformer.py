@@ -279,7 +279,7 @@ class Transformer(nn.Module):
         self.grad_checkpointing = False
 
         self.resblocks = nn.ModuleList([
-            ResidualAttentionBlock(width, heads, mlp_ratio)
+            ResidualAttentionBlock(width, heads, None)
             for idx in range(layers)
         ])
 

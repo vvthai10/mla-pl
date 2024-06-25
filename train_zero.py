@@ -63,10 +63,6 @@ def main():
     model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(device)
     model.eval()
 
-    checkpoint = torch.load(os.path.join(f'./ckpt_ori/zero-shot/Liver.pth'))
-    model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
-    model.det_adapters.load_state_dict(checkpoint["det_adapters"])
-
     for name, param in model.named_parameters():
         param.requires_grad = True
 
@@ -154,20 +150,19 @@ def main():
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
                     
                     loss = seg_loss + det_loss # = focal(seg_out, mask) + bce(det_out, y)
-                    # loss.requires_grad_(True)
-                    # seg_optimizer.zero_grad()
-                    # det_optimizer.zero_grad()
-                    # loss.backward()
-                    # seg_optimizer.step()
-                    # det_optimizer.step()
+                    loss.requires_grad_(True)
+                    seg_optimizer.zero_grad()
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    seg_optimizer.step()
+                    det_optimizer.step()
 
                 else:
-                    pass
-                    # loss = det_loss
-                    # loss.requires_grad_(True)
-                    # det_optimizer.zero_grad()
-                    # loss.backward()
-                    # det_optimizer.step()
+                    loss = det_loss
+                    loss.requires_grad_(True)
+                    det_optimizer.zero_grad()
+                    loss.backward()
+                    det_optimizer.step()
 
                 loss_list.append(loss.item())
 
