@@ -141,14 +141,30 @@ def main():
                 clip_model,
                 REAL_NAME[CLASS_INDEX_INV[i]],
                 device,
-                proj_dim=256,
             )
             text_feature_list.append(text_feature)
 
     save_score = 0.0
 
-    print("Text features len: ", len(text_feature_list))
-    print("Text feature shape: ", text_feature_list[1].shape)
+    total_det = sum(
+        p.numel() for p in model.det_adapters.parameters() if p.requires_grad
+    )
+
+    total_seg = sum(
+        p.numel() for p in model.seg_adapters.parameters() if p.requires_grad
+    )
+
+    total_dec = sum(p.numel() for p in model.decoder.parameters() if p.requires_grad)
+
+    total_text_proj = sum(
+        p.numel() for p in model.text_proj.parameters() if p.requires_grad
+    )
+
+    print("Parameters: ")
+    print("Detection: ", total_det)
+    print("total_seg: ", total_seg)
+    print("total_dec: ", total_dec)
+    print("total_text_proj: ", total_text_proj)
 
     for epoch in range(args.epoch):
         print("epoch", epoch, ":")
@@ -176,24 +192,30 @@ def main():
             seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(
-                    image, text_features=text_feature_list[seg_idx]
-                )
-                seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
-                det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
+                _, seg_patch_tokens, det_patch_tokens = model(image)
+
+                # seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
+                # det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
                 # image level
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
                 for layer in range(len(det_patch_tokens)):
+                    if layer == 0:
+                        x = det_patch_tokens[layer]
+                    else:
+                        x = x + det_patch_tokens[layer]
 
-                    det_patch_tokens[layer] = det_patch_tokens[
-                        layer
-                    ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
+                    # det_patch_tokens[layer] = det_patch_tokens[
+                    #     layer
+                    # ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
 
-                    anomaly_map = (
-                        100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx]
+                    x, anomaly_map = model.decode(
+                        patch_tokens=x,
+                        text_features=text_feature_list[seg_idx],
+                        ith=layer,
                     )
+
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -203,14 +225,20 @@ def main():
                     seg_loss = 0
                     mask = mask.squeeze(0).to(device)
                     mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
+
                     for layer in range(len(seg_patch_tokens)):
-                        seg_patch_tokens[layer] = seg_patch_tokens[
-                            layer
-                        ] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                        # print(seg_patch_tokens[layer].shape, text_feature_list[seg_idx].shape) # torch.Size([289, 768]) torch.Size([768, 2])
-                        anomaly_map = (
-                            100.0 * seg_patch_tokens[layer] @ text_feature_list[seg_idx]
+
+                        if layer == 0:
+                            x = seg_patch_tokens[layer]
+                        else:
+                            x = x + seg_patch_tokens[layer]
+
+                        x, anomaly_map = model.decode(
+                            patch_tokens=x,
+                            text_features=text_feature_list[seg_idx],
+                            ith=layer,
                         )
+
                         B, L, C = anomaly_map.shape
                         H = int(np.sqrt(L))
                         anomaly_map = F.interpolate(
@@ -262,19 +290,25 @@ def test(args, seg_model, test_loader, text_features):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(
-                image, text_features=text_features
-            )
-            ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
-            ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
+            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
+            # ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
+            # ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
             # image
             anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
-                patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
+                if layer == 0:
+                    x = patch_tokens[layer]
+                else:
+                    x = x + patch_tokens[layer]
+
+                # patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
                 # anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
-                anomaly_map = (100.0 * patch_tokens[layer]).unsqueeze(0)
+
+                x, anomaly_map = seg_model.decode(
+                    patch_tokens=x, text_features=text_features, ith=layer
+                )
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
             image_scores.append(anomaly_score.cpu())
@@ -283,9 +317,15 @@ def test(args, seg_model, test_loader, text_features):
             patch_tokens = ori_seg_patch_tokens
             anomaly_maps = []
             for layer in range(len(patch_tokens)):
-                patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
+                if layer == 0:
+                    x = patch_tokens[layer]
+                else:
+                    x = x + patch_tokens[layer]
+                # patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
                 # anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
-                anomaly_map = (100.0 * patch_tokens[layer]).unsqueeze(0)
+                x, anomaly_map = seg_model.decode(
+                    patch_tokens=x, text_features=text_features, ith=layer
+                )
                 B, L, C = anomaly_map.shape
                 H = int(np.sqrt(L))
                 anomaly_map = F.interpolate(

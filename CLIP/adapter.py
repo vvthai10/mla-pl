@@ -48,7 +48,9 @@ class CLIP_Inplanted(nn.Module):
             ]
         )
 
-    def forward(self, image, text_features):
+        self.text_proj = nn.Linear(768, reduce_dim, device="cuda:0")
+
+    def forward(self, image):
         x = self.image_encoder.conv1(image)
         x = x.reshape(x.shape[0], x.shape[1], -1)
         x = x.permute(0, 2, 1)
@@ -72,77 +74,50 @@ class CLIP_Inplanted(nn.Module):
 
         seg_patch_tokens = []
         det_patch_tokens = []
-        attn_out = []
-        activations = []
 
         for i in range(24):
-
-            if i + 1 == 12:
-                x, attn = self.image_encoder.transformer.resblocks[i](x)
-                attn_out.append(attn)
-            else:
-                x, _ = self.image_encoder.transformer.resblocks[i](x)
+            x = self.image_encoder.transformer.resblocks[i](x)
 
             if (i + 1) in self.features:
-                # 290, 1, 256
+
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[
                     self.features.index(i + 1)
-                ](x)
+                ](0.5 * x[0] + 0.5 * x[1])
 
                 det_adapt_med, det_adapt_out = self.det_adapters[
                     self.features.index(i + 1)
-                ](x)
+                ](0.5 * x[0] + 0.5 * x[1])
 
-
-                det_adapt_med = self.forward_decoder(
-                    det_adapt_med, text_features, self.features.index(i + 1)
-                )
-
-                seg_adapt_med = self.forward_decoder(
-                    seg_adapt_med, text_features, self.features.index(i + 1)
-                )
-
-                # F^*
-                x = 0.8 * x + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
+                x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
 
                 seg_patch_tokens.append(seg_adapt_med)
                 det_patch_tokens.append(det_adapt_med)
 
-            activations.append(x)
-
-        B, C, L = attn_out[0].shape
-        H = int(math.sqrt(L - 1))
-
-        out_attn = torch.zeros([H, H]).to("cuda")
-
-        for i in range(len(attn)):
-            out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
-
-        x = x.permute(1, 0, 2)
-
         seg_patch_tokens = [
             seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))
         ]
+
         det_patch_tokens = [
             det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))
         ]
 
-        pooled, tokens = self.image_encoder._global_pool(x)
-        pooled = self.image_encoder.ln_post(pooled)
+        return None, seg_patch_tokens, det_patch_tokens
 
-        if self.image_encoder.proj is not None:
-            pooled = pooled @ self.image_encoder.proj
+    def decode(self, patch_tokens, text_features, ith):
+        
+        text = text_features.permute(1, 0)
+        text = self.text_proj(text)
+        text = text.permute(1, 0)
 
-        return pooled, seg_patch_tokens, det_patch_tokens
-    def forward_decoder(self, patch_token, text_features, ith):
+        x = patch_tokens
+        # 1, 290, 256 -> 290, 1, 256
+        x = x.permute(1, 0, 2)
+        x = self.decoder[ith](x)
+        x = x.permute(1, 0, 2)
 
-        patch_token = (self.decoder[ith](patch_token)).permute(1, 0, 2)  # 1, 290, 256
-        # print("patch_token 2 shape: ", patch_token.shape)
+        patch = x[0, 1:, :]
+        patch /= patch.norm(dim=-1, keepdim=True)
 
-        patch_token /= patch_token.norm(dim=-1, keepdim=True)  # 1, 290, 256
-        # print("patch_token 3 shape: ", patch_token.shape)
-
-        # (1, 290, 256) @ (256, 2) => (1, 290, 256)
-        patch_token = (patch_token @ text_features).permute(1, 0, 2) 
-        # print("patch_token 4 shape: ", patch_token.shape)
-        return patch_token
+        # (289, 256) @ (256, 2) => (289 x 2) => (1 x 289 x 2)
+        anomaly_map = (100 * patch @ text_features).unsqueeze(0)
+        return x, anomaly_map

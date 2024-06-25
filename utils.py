@@ -7,7 +7,7 @@ from CLIP.tokenizer import tokenize
 from torch.nn import Linear
 
 
-def encode_text_with_prompt_ensemble(model, obj, device, proj_dim = None):
+def encode_text_with_prompt_ensemble(model, obj, device):
     prompt_normal = [
         "{}",
         "flawless {}",
@@ -76,15 +76,10 @@ def encode_text_with_prompt_ensemble(model, obj, device, proj_dim = None):
         class_embedding = class_embeddings.mean(dim=0)
         class_embedding /= class_embedding.norm()
         text_features.append(class_embedding)
+
     text_features = torch.stack(text_features, dim=1).to(device)
     text_features = text_features.cuda()
     
-    if proj_dim:
-        text_features = text_features.permute(1, 0)
-        text_proj = Linear(768, proj_dim, device="cuda:0")
-        text_features = text_proj(text_features)
-        text_features = text_features.permute(1, 0)
-
     return text_features
 
 

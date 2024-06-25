@@ -354,20 +354,10 @@ class Transformer(nn.Module):
         self.layers = layers
         self.grad_checkpointing = False
 
-        self.resblocks = nn.ModuleList(
-            [
-                ResidualAttentionBlock(
-                    width,
-                    heads,
-                    mlp_ratio,
-                    ls_init_value=ls_init_value,
-                    act_layer=act_layer,
-                    norm_layer=norm_layer,
-                    idx=idx,
-                )
-                for idx in range(layers)
-            ]
-        )
+        self.resblocks = nn.ModuleList([
+            ResidualAttentionBlock(width, heads, None)
+            for idx in range(layers)
+        ])
 
     def get_cast_dtype(self) -> torch.dtype:
         return self.resblocks[0].mlp.c_fc.weight.dtype
