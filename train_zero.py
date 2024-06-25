@@ -94,8 +94,7 @@ def main():
         require_pretrained=True,
     )
     clip_model.eval()
-
-    # clip_model.visual.DAPM_replace(DPAM_layer=20)
+    clip_model.visual.DAPM_replace(DPAM_layer=20)
 
     model = CLIP_Inplanted(
         clip_model=clip_model, features=args.features_list, reduce_dim=256
@@ -109,8 +108,17 @@ def main():
     seg_optimizer = torch.optim.Adam(
         list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
     )
+
     det_optimizer = torch.optim.Adam(
         list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    )
+
+    decoder_optimizer = torch.optim.Adam(
+        list(model.decoder.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    )
+
+    text_proj_optimizer = torch.optim.Adam(
+        list(model.text_proj.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
     )
 
     # load dataset and loader
@@ -168,7 +176,7 @@ def main():
 
     for epoch in range(args.epoch):
         print("epoch", epoch, ":")
-        if epoch >= 0:
+        if epoch > 0:
             score = test(
                 args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]]
             )
@@ -179,6 +187,8 @@ def main():
                     {
                         "seg_adapters": model.seg_adapters.state_dict(),
                         "det_adapters": model.det_adapters.state_dict(),
+                        "decoder": model.decoder.state_dict(),
+                        "text_proj": model.text_proj.state_dict(),
                     },
                     ckp_path,
                 )
@@ -195,27 +205,19 @@ def main():
                 _, seg_patch_tokens, det_patch_tokens = model(image)
 
                 # seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
-                # det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
+                det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
                 # image level
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
+
                 for layer in range(len(det_patch_tokens)):
-                    if layer == 0:
-                        x = det_patch_tokens[layer]
-                    else:
-                        x = x + det_patch_tokens[layer]
-
-                    # det_patch_tokens[layer] = det_patch_tokens[
-                    #     layer
-                    # ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-
-                    x, anomaly_map = model.decode(
-                        patch_tokens=x,
-                        text_features=text_feature_list[seg_idx],
-                        ith=layer,
+                    det_patch_tokens[layer] = det_patch_tokens[
+                        layer
+                    ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
+                    anomaly_map = (
+                        100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx]
                     )
-
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -254,19 +256,34 @@ def main():
                     loss = (
                         seg_loss + det_loss
                     )  # = focal(seg_out, mask) + bce(det_out, y)
+
                     loss.requires_grad_(True)
+
                     seg_optimizer.zero_grad()
                     det_optimizer.zero_grad()
+                    decoder_optimizer.zero_grad()
+                    text_proj_optimizer.zero_grad()
+
                     loss.backward()
+
                     seg_optimizer.step()
                     det_optimizer.step()
+                    decoder_optimizer.step()
+                    text_proj_optimizer.step()
 
                 else:
                     loss = det_loss
                     loss.requires_grad_(True)
+
                     det_optimizer.zero_grad()
+                    decoder_optimizer.zero_grad()
+                    text_proj_optimizer.zero_grad()
+
                     loss.backward()
+
                     det_optimizer.step()
+                    decoder_optimizer.step()
+                    text_proj_optimizer.step()
 
                 loss_list.append(loss.item())
 
@@ -292,25 +309,17 @@ def test(args, seg_model, test_loader, text_features):
         with torch.no_grad(), torch.cuda.amp.autocast():
             _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
             # ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
-            # ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
+            ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
             # image
             anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
-                if layer == 0:
-                    x = patch_tokens[layer]
-                else:
-                    x = x + patch_tokens[layer]
-
-                # patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                # anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
-
-                x, anomaly_map = seg_model.decode(
-                    patch_tokens=x, text_features=text_features, ith=layer
-                )
+                patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
+                anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
+
             image_scores.append(anomaly_score.cpu())
 
             # pixel

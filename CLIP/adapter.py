@@ -38,7 +38,7 @@ class CLIP_Inplanted(nn.Module):
 
         # Classification Adapter
         self.det_adapters = nn.ModuleList(
-            [ClipAdapter(1024, bottleneck=reduce_dim) for i in range(len(features))]
+            [ClipAdapter(1024, bottleneck=768) for i in range(len(features))]
         )
 
         self.decoder = nn.ModuleList(
@@ -104,7 +104,7 @@ class CLIP_Inplanted(nn.Module):
         return None, seg_patch_tokens, det_patch_tokens
 
     def decode(self, patch_tokens, text_features, ith):
-        
+
         text = text_features.permute(1, 0)
         text = self.text_proj(text)
         text = text.permute(1, 0)
@@ -115,9 +115,9 @@ class CLIP_Inplanted(nn.Module):
         x = self.decoder[ith](x)
         x = x.permute(1, 0, 2)
 
-        patch = x[0, 1:, :]
-        patch /= patch.norm(dim=-1, keepdim=True)
+        patch = x[:, 1:, :]
+        patch = patch / patch.norm(dim=-1, keepdim=True)
 
         # (289, 256) @ (256, 2) => (289 x 2) => (1 x 289 x 2)
-        anomaly_map = (100 * patch @ text_features).unsqueeze(0)
+        anomaly_map = 100 * patch @ text
         return x, anomaly_map
