@@ -1,22 +1,15 @@
-import os
 import argparse
 import random
-import math
 import numpy as np
 import torch
-from torch import nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from scipy.ndimage import gaussian_filter
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.tokenizer import tokenize
 from CLIP.adapter import CLIP_Inplanted
-from PIL import Image
-from sklearn.metrics import precision_recall_curve
 from loss import FocalLoss, BinaryDiceLoss
-from utils import augment, encode_text_with_prompt_ensemble
+from utils import encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
 
 import warnings
@@ -25,6 +18,9 @@ warnings.filterwarnings("ignore")
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
+torch.backends.cudnn.benchmark = True
+NUM_WORKERS = 8
+
 
 CLASS_INDEX = {
     "Brain": 3,
@@ -93,12 +89,17 @@ def main():
         pretrained=args.pretrain,
         require_pretrained=True,
     )
+
     clip_model.eval()
     clip_model.visual.DAPM_replace(DPAM_layer=20)
 
     model = CLIP_Inplanted(
-        clip_model=clip_model, features=args.features_list, reduce_dim=256
+        clip_model=clip_model,
+        features=args.features_list,
+        seg_reduce_dim=128,
+        det_reduce_dim=768,
     ).to(device)
+
     model.eval()
 
     for name, param in model.named_parameters():
@@ -122,7 +123,7 @@ def main():
     )
 
     # load dataset and loader
-    kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
+    kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True} if use_cuda else {}
     train_dataset = MedTrainDataset(
         args.data_path, args.obj, args.img_size, args.batch_size
     )
@@ -169,10 +170,10 @@ def main():
     )
 
     print("Parameters: ")
-    print("Detection: ", total_det)
-    print("total_seg: ", total_seg)
-    print("total_dec: ", total_dec)
-    print("total_text_proj: ", total_text_proj)
+    print("Classification params: ", total_det)
+    print("Segmentation params: ", total_seg)
+    print("Decoder params: ", total_dec)
+    print("Text projection params: ", total_text_proj)
 
     for epoch in range(args.epoch):
         print("epoch", epoch, ":")
@@ -233,7 +234,7 @@ def main():
                         if layer == 0:
                             x = seg_patch_tokens[layer]
                         else:
-                            x = x + seg_patch_tokens[layer]
+                            x = 0.5 * x + 0.5 * seg_patch_tokens[layer]
 
                         x, anomaly_map = model.decode(
                             patch_tokens=x,
@@ -329,7 +330,7 @@ def test(args, seg_model, test_loader, text_features):
                 if layer == 0:
                     x = patch_tokens[layer]
                 else:
-                    x = x + patch_tokens[layer]
+                    x = 0.5 * x + 0.5 * patch_tokens[layer]
                 # patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
                 # anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
                 x, anomaly_map = seg_model.decode(
