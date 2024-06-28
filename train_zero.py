@@ -88,18 +88,20 @@ def main():
 
 
     text_feature_list = [0]
+    text_embeddings_list = [0]
     # text prompt
     with torch.cuda.amp.autocast(), torch.no_grad():
         for i in [1,2,3,-3,-2,-1]: #
-            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+            text_feature, text_embeddings = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
             text_feature_list.append(text_feature)
+            text_embeddings_list.append(text_embeddings)
 
     save_score = 0.0
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
         if epoch >= 0:
-            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
             if score >= save_score:
                 save_score = score
                 ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
@@ -112,12 +114,11 @@ def main():
         loss_list = []
         for (image, image_label, mask, seg_idx) in tqdm(train_loader):
 
-
             image = image.squeeze(0).to(device)
             seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
+                _, seg_patch_tokens, det_patch_tokens = model(image, text_embeddings_list[seg_idx])
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
@@ -175,7 +176,7 @@ def main():
 
 
 
-def test(args, seg_model, test_loader, text_features):
+def test(args, seg_model, test_loader, text_features, text_embeddings):
     gt_list = []
     gt_mask_list = []
     image_scores = []
@@ -186,7 +187,7 @@ def test(args, seg_model, test_loader, text_features):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
+            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
             

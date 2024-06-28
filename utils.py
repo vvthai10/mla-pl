@@ -7,12 +7,14 @@ from CLIP.tokenizer import tokenize
 
 
 def encode_text_with_prompt_ensemble(model, obj, device):
-    prompt_normal = ['{}', 'flawless {}', 'perfect {}', 'unblemished {}', '{} without flaw', '{} without defect', '{} without damage']
-    prompt_abnormal = ['damaged {}', 'broken {}', '{} with flaw', '{} with defect', '{} with damage']
+    prompt_normal = ['{}', 'flawless {}', 'perfect {}', 'unblemished {}', '{} without flaw', '{} without defect', '{} without damage', '{} with no abnormalities']
+    prompt_abnormal = ["damaged {}", "abnormal {}", "imperfect {}", "blemished {}", "{} with flaw", "{} with defect", "{} with damage", "{} with irregularity"]
     prompt_state = [prompt_normal, prompt_abnormal]
-    prompt_templates = ['a bad photo of a {}.', 'a low resolution photo of the {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a bright photo of a {}.', 'a dark photo of the {}.', 'a photo of my {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a photo of one {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'a low resolution photo of a {}.', 'a photo of a large {}.', 'a blurry photo of a {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a photo of the small {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'a dark photo of a {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.']
+    # prompt_templates = ['a bad photo of a {}.', 'a low resolution photo of the {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a bright photo of a {}.', 'a dark photo of the {}.', 'a photo of my {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a photo of one {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'a low resolution photo of a {}.', 'a photo of a large {}.', 'a blurry photo of a {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a photo of the small {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'a dark photo of a {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.']
+    prompt_templates = PROMPT_TEMPLATES
 
     text_features = []
+    text_embeddings = []
     for i in range(len(prompt_state)):
         prompted_state = [state.format(obj) for state in prompt_state[i]]
         prompted_sentence = []
@@ -21,12 +23,15 @@ def encode_text_with_prompt_ensemble(model, obj, device):
                 prompted_sentence.append(template.format(s))
         prompted_sentence = tokenize(prompted_sentence).to(device)
         class_embeddings = model.encode_text(prompted_sentence)
-        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
         class_embedding = class_embeddings.mean(dim=0)
+        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
+        # class_embedding = class_embeddings.mean(dim=0)
         class_embedding /= class_embedding.norm()
         text_features.append(class_embedding)
+        text_embeddings.append(class_embeddings)
     text_features = torch.stack(text_features, dim=1).to(device)
-    return text_features
+    text_embeddings = torch.stack(text_embeddings, dim=2).to(device)
+    return text_features, text_embeddings
 
 
 def cos_sim(a, b, eps=1e-8):
@@ -135,3 +140,69 @@ def augment(fewshot_img, fewshot_mask=None):
     
     return augment_fewshot_img, augment_fewshot_mask
 
+PROMPT_TEMPLATES = [
+  "a bad photo of a {}.",
+  "a low resolution photo of the {}.",
+  "a cropped photo of the {}.",
+  "a bright photo of a {}.",
+  "a dark photo of the {}.",
+  "a photo of my {}.",
+  "a photo of the cool {}.",
+  "a close-up photo of a {}.",
+  "a black and white photo of the {}.",
+  "a bright photo of the {}.",
+  "a cropped photo of a {}.",
+  "a jpeg corrupted photo of a {}.",
+  "a blurry photo of the {}.",
+  "a good photo of the {}.",
+  "a photo of one {}.",
+  "a close-up photo of the {}.",
+  "a photo of a {}.",
+  "a low resolution photo of a {}.",
+  "a photo of a large {}.",
+  "a blurry photo of a {}.",
+  "a jpeg corrupted photo of the {}.",
+  "a good photo of a {}.",
+  "a photo of the small {}.",
+  "a photo of the large {}.",
+  "a black and white photo of a {}.",
+  "a photo of a cool {}.",
+  "there is a {} in the scene.",
+  "this is one {} in the scene.",
+  "a grainy photo of a {}.",
+  "a washed-out photo of the {}.",
+  "a detailed photo of a {}.",
+  "a zoomed-out photo of the {}.",
+  "a clear photo of the {}.",
+  "an overexposed photo of a {}.",
+  "an underexposed photo of the {}.",
+  "a shadowy photo of the {}.",
+  "a photo of a well-lit {}.",
+  "a photo of a dimly lit {}.",
+  "a high contrast photo of the {}.",
+  "a low contrast photo of a {}.",
+  "a color photo of the {}.",
+  "a monochrome photo of a {}.",
+  "a vibrant photo of the {}.",
+  "a photo of a sharp {}.",
+  "a photo of a blurry {}.",
+  "a photo of a detailed {}.",
+  "a photo of a smooth {}.",
+  "a photo of the {} from a distance.",
+  "a close-up shot of the {}.",
+  "a photo with a {} in the foreground.",
+  "a poorly lit photo of the {}.",
+  "a well-lit photo of a {}.",
+  "a distorted photo of the {}.",
+  "an artistic photo of a {}.",
+  "a stylized photo of the {}.",
+  "a candid photo of the {}.",
+  "a posed photo of a {}.",
+  "an angled photo of the {}.",
+  "a centered photo of a {}.",
+  "an off-center photo of the {}.",
+  "a tilted photo of a {}.",
+  "a level photo of the {}.",
+  "a vertical photo of a {}.",
+  "a horizontal photo of the {}."
+]
