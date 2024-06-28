@@ -63,11 +63,15 @@ def main():
     parser.add_argument("--obj", type=str, default="Retina_RESC")
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--ckpt_path", type=str, default="./ckpt/")
+    parser.add_argument("--continue_path", type=str, default=None)
     parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--img_size", type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
     parser.add_argument(
-        "--learning_rate", type=float, default=0.0001, help="learning rate"
+        "--learning_rate", type=float, default=1e-3, help="learning rate"
+    )
+    parser.add_argument(
+        "--weight_decay", type=float, default=1e-2, help="learning rate"
     )
     parser.add_argument(
         "--features_list",
@@ -82,7 +86,7 @@ def main():
     setup_seed(args.seed)
 
     # fixed feature extractor
-    clip_model = create_model(
+    clip_model, model_cfg = create_model(
         model_name=args.model_name,
         img_size=args.img_size,
         device=device,
@@ -97,29 +101,44 @@ def main():
         clip_model=clip_model,
         features=args.features_list,
         seg_reduce_dim=128,
-        det_reduce_dim=768,
+        det_reduce_dim=model_cfg["embed_dim"],
     ).to(device)
+
+    # if args.continue_path:
+    #     model.load_state_dict(torch.load(args.continue_path), strict=False)
 
     model.eval()
 
     for name, param in model.named_parameters():
         param.requires_grad = True
 
-    # optimizer for only adapters
-    seg_optimizer = torch.optim.Adam(
-        list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    # Optimizers
+    seg_optimizer = torch.optim.AdamW(
+        list(model.seg_adapters.parameters()),
+        lr=args.learning_rate,
+        betas=(0.5, 0.999),
+        weight_decay=args.weight_decay,
     )
 
-    det_optimizer = torch.optim.Adam(
-        list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    det_optimizer = torch.optim.AdamW(
+        list(model.det_adapters.parameters()),
+        lr=args.learning_rate,
+        betas=(0.5, 0.999),
+        weight_decay=args.weight_decay,
     )
 
-    decoder_optimizer = torch.optim.Adam(
-        list(model.decoder.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    decoder_optimizer = torch.optim.AdamW(
+        list(model.decoder.parameters()),
+        lr=args.learning_rate,
+        betas=(0.5, 0.999),
+        weight_decay=args.weight_decay,
     )
 
-    text_proj_optimizer = torch.optim.Adam(
-        list(model.text_proj.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
+    text_proj_optimizer = torch.optim.AdamW(
+        list(model.text_proj.parameters()),
+        lr=args.learning_rate,
+        betas=(0.5, 0.999),
+        weight_decay=args.weight_decay,
     )
 
     # load dataset and loader
@@ -155,28 +174,28 @@ def main():
 
     save_score = 0.0
 
-    total_det = sum(
+    total_det_params = sum(
         p.numel() for p in model.det_adapters.parameters() if p.requires_grad
     )
 
-    total_seg = sum(
+    total_seg_params = sum(
         p.numel() for p in model.seg_adapters.parameters() if p.requires_grad
     )
 
-    total_dec = sum(p.numel() for p in model.decoder.parameters() if p.requires_grad)
+    total_dec_params = sum(p.numel() for p in model.decoder.parameters() if p.requires_grad)
 
-    total_text_proj = sum(
+    total_text_proj_params = sum(
         p.numel() for p in model.text_proj.parameters() if p.requires_grad
     )
 
     print("Parameters: ")
-    print("Classification params: ", total_det)
-    print("Segmentation params: ", total_seg)
-    print("Decoder params: ", total_dec)
-    print("Text projection params: ", total_text_proj)
+    print("Classification params: ", total_det_params)
+    print("Segmentation params: ", total_seg_params)
+    print("Decoder params: ", total_dec_params)
+    print("Text projection params: ", total_text_proj_params)
 
     for epoch in range(args.epoch):
-        print("epoch", epoch, ":")
+        print(f"Epoch {epoch}: ")
         if epoch > 0:
             score = test(
                 args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]]
@@ -221,6 +240,10 @@ def main():
                     )
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
+                    # print("scores:", anomaly_score.shape)
+                    # print("scores:", anomaly_score)
+                    # print("Label: ", image_label.shape)
+                    # print("Label: ", image_label)
                     det_loss += loss_bce(anomaly_score, image_label)
 
                 if seg_idx > 0:

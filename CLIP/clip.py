@@ -119,6 +119,9 @@ def create_model(
     if pretrained and pretrained.lower() == "openai":
         logging.info(f"Loading pretrained {model_name} from OpenAI.")
         model_cfg = model_cfg or get_model_config(model_name)
+        print("Model config: ")
+        print(model_cfg)
+        print()
         # print(model_cfg['vision_cfg'])
         if model_cfg["vision_cfg"]["image_size"] != img_size:
             model_cfg["vision_cfg"]["image_size"] = img_size
@@ -236,4 +239,4 @@ def create_model(
         if jit:
             model = torch.jit.script(model)
 
-    return model
+    return model, model_cfg

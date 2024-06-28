@@ -5,7 +5,7 @@ import kornia as K
 from PIL import Image
 from CLIP.tokenizer import tokenize
 from torch.nn import Linear
-
+from tqdm import tqdm
 
 def encode_text_with_prompt_ensemble(model, obj, device):
     prompt_normal = [
@@ -25,61 +25,72 @@ def encode_text_with_prompt_ensemble(model, obj, device):
         "{} with damage",
     ]
     prompt_state = [prompt_normal, prompt_abnormal]
+
     prompt_templates = [
-        "a bad photo of a {}.",
-        "a low resolution photo of the {}.",
-        "a bad photo of the {}.",
-        "a cropped photo of the {}.",
-        "a bright photo of a {}.",
-        "a dark photo of the {}.",
-        "a photo of my {}.",
-        "a photo of the cool {}.",
-        "a close-up photo of a {}.",
-        "a black and white photo of the {}.",
-        "a bright photo of the {}.",
-        "a cropped photo of a {}.",
-        "a jpeg corrupted photo of a {}.",
-        "a blurry photo of the {}.",
-        "a photo of the {}.",
-        "a good photo of the {}.",
-        "a photo of one {}.",
-        "a close-up photo of the {}.",
-        "a photo of a {}.",
-        "a low resolution photo of a {}.",
-        "a photo of a large {}.",
-        "a blurry photo of a {}.",
-        "a jpeg corrupted photo of the {}.",
-        "a good photo of a {}.",
-        "a photo of the small {}.",
-        "a photo of the large {}.",
-        "a black and white photo of a {}.",
-        "a dark photo of a {}.",
-        "a photo of a cool {}.",
-        "a photo of a small {}.",
-        "there is a {} in the scene.",
-        "there is the {} in the scene.",
-        "this is a {} in the scene.",
-        "this is the {} in the scene.",
-        "this is one {} in the scene.",
+        "a bad {domain} photo of a {state}.",
+        "a low resolution {domain} photo of the {state}.",
+        "a bad {domain} photo of the {state}.",
+        "a cropped {domain} photo of the {state}.",
+        "a bright {domain} photo of a {state}.",
+        "a dark {domain} photo of the {state}.",
+        "a {domain} photo of my {state}.",
+        "a {domain} photo of the cool {state}.",
+        "a close-up {domain} photo of a {state}.",
+        "a black and white {domain} photo of the {state}.",
+        "a bright {domain} photo of the {state}.",
+        "a cropped {domain} photo of a {state}.",
+        "a jpeg corrupted {domain} photo of a {state}.",
+        "a blurry {domain} photo of the {state}.",
+        "a {domain} photo of the {state}.",
+        "a good {domain} photo of the {state}.",
+        "a {domain} photo of one {state}.",
+        "a close-up {domain} photo of the {state}.",
+        "a {domain} photo of a {state}.",
+        "a low resolution {domain} photo of a {state}.",
+        "a {domain} photo of a large {state}.",
+        "a blurry {domain} photo of a {state}.",
+        "a jpeg corrupted {domain} photo of the {state}.",
+        "a good {domain} photo of a {state}.",
+        "a {domain} photo of the small {state}.",
+        "a {domain} photo of the large {state}.",
+        "a black and white {domain} photo of a {state}.",
+        "a dark {domain} photo of a {state}.",
+        "a {domain} photo of a cool {state}.",
+        "a {domain} photo of a small {state}.",
+        # "there is a {} in the scene.",
+        # "there is the {} in the scene.",
+        # "this is a {} in the scene.",
+        # "this is the {} in the scene.",
+        # "this is one {} in the scene.",
     ]
 
     text_features = []
-    for i in range(len(prompt_state)):
+    text_features_list = []
+    for i in tqdm(range(len(prompt_state)), desc=f"Embedding text {obj}"):
         prompted_state = [state.format(obj) for state in prompt_state[i]]
         prompted_sentence = []
         for s in prompted_state:
             for template in prompt_templates:
-                prompted_sentence.append(template.format(s))
+                prompted_sentence.append(template.format(domain="medical", state=s))
+
+        # print(prompted_sentence)
+
         prompted_sentence = tokenize(prompted_sentence).to(device)
         class_embeddings = model.encode_text(prompted_sentence)
+        # class_embedding = class_embeddings.mean(dim=0)
+        # print("class_embeddings 1: ", class_embeddings.shape)
         class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
+        # print("class_embeddings 2: ", class_embeddings.shape)
         class_embedding = class_embeddings.mean(dim=0)
         class_embedding /= class_embedding.norm()
         text_features.append(class_embedding)
+        text_features_list.append(class_embeddings)
 
     text_features = torch.stack(text_features, dim=1).to(device)
     text_features = text_features.cuda()
-    
+    # text_features_list = torch.stack(text_features_list, dim=2).to(device)
+    # print("text_features shape: ", text_features.shape)
+    # print("text_features_list shape: ", text_features_list.shape)
     return text_features
 
 
