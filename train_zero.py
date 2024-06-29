@@ -151,12 +151,12 @@ def main():
         args.data_path, args.obj, args.img_size, args.batch_size
     )
     train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=1, shuffle=True, **kwargs
+        train_dataset, batch_size=args.batch_size, shuffle=True, **kwargs
     )
 
     test_dataset = MedTestDataset(args.data_path, args.obj, args.img_size)
     test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=1, shuffle=False, **kwargs
+        test_dataset, batch_size=args.batch_size, shuffle=False, **kwargs
     )
 
     # losses
