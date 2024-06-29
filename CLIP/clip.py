@@ -21,6 +21,7 @@ import numpy as np
 _MODEL_CONFIG_PATHS = [Path(__file__).parent / f"model_configs/"]
 _MODEL_CONFIGS = {}  # directory (model_name: config) of model architecture configs
 _MODEL_CKPT_PATHS = {"ViT-L-14-336": Path(__file__).parent / "ckpt/ViT-L-14-336px.pt"}
+_MODEL_CKPT_PATHS = {"ViT-L-14-336": Path(__file__).parent / "ckpt/ViT-L-14-336px.pt"}
 
 
 def _natural_key(string_):
@@ -170,7 +171,6 @@ def create_model(
                 precision=precision,
                 device=device,
                 jit=jit,
-                cache_dir=cache_dir,
             )
 
             # to always output dict even if it is clip

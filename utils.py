@@ -2,96 +2,38 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import kornia as K
-from PIL import Image
 from CLIP.tokenizer import tokenize
-from torch.nn import Linear
 from tqdm import tqdm
+import math
 
-def encode_text_with_prompt_ensemble(model, obj, device):
-    prompt_normal = [
-        "{}",
-        "flawless {}",
-        "perfect {}",
-        "unblemished {}",
-        "{} without flaw",
-        "{} without defect",
-        "{} without damage",
-    ]
-    prompt_abnormal = [
-        "damaged {}",
-        "broken {}",
-        "{} with flaw",
-        "{} with defect",
-        "{} with damage",
-    ]
-    prompt_state = [prompt_normal, prompt_abnormal]
+def resize_tokens(x):
+    B, N, C = x.shape
+    x = x.view(B, int(math.sqrt(N)), int(math.sqrt(N)), C)
+    return x
 
-    prompt_templates = [
-        "a bad {domain} photo of a {state}.",
-        "a low resolution {domain} photo of the {state}.",
-        "a bad {domain} photo of the {state}.",
-        "a cropped {domain} photo of the {state}.",
-        "a bright {domain} photo of a {state}.",
-        "a dark {domain} photo of the {state}.",
-        "a {domain} photo of my {state}.",
-        "a {domain} photo of the cool {state}.",
-        "a close-up {domain} photo of a {state}.",
-        "a black and white {domain} photo of the {state}.",
-        "a bright {domain} photo of the {state}.",
-        "a cropped {domain} photo of a {state}.",
-        "a jpeg corrupted {domain} photo of a {state}.",
-        "a blurry {domain} photo of the {state}.",
-        "a {domain} photo of the {state}.",
-        "a good {domain} photo of the {state}.",
-        "a {domain} photo of one {state}.",
-        "a close-up {domain} photo of the {state}.",
-        "a {domain} photo of a {state}.",
-        "a low resolution {domain} photo of a {state}.",
-        "a {domain} photo of a large {state}.",
-        "a blurry {domain} photo of a {state}.",
-        "a jpeg corrupted {domain} photo of the {state}.",
-        "a good {domain} photo of a {state}.",
-        "a {domain} photo of the small {state}.",
-        "a {domain} photo of the large {state}.",
-        "a black and white {domain} photo of a {state}.",
-        "a dark {domain} photo of a {state}.",
-        "a {domain} photo of a cool {state}.",
-        "a {domain} photo of a small {state}.",
-        # "there is a {} in the scene.",
-        # "there is the {} in the scene.",
-        # "this is a {} in the scene.",
-        # "this is the {} in the scene.",
-        # "this is one {} in the scene.",
-    ]
 
-    text_features = []
-    text_features_list = []
-    for i in tqdm(range(len(prompt_state)), desc=f"Embedding text {obj}"):
-        prompted_state = [state.format(obj) for state in prompt_state[i]]
-        prompted_sentence = []
-        for s in prompted_state:
-            for template in prompt_templates:
-                prompted_sentence.append(template.format(domain="medical", state=s))
+def image_tiling(x, scale=0.2):
+    # B C H W
+    B, C, H, W = x.shape
+    H_scale = H * scale
+    diff = W - H  # 263-240=23, 48
+    # if diff<H_scale:
+    #    return x
+    x1 = x[:, :, :, :H]
+    x2 = x[:, :, :, diff:]
+    x = torch.cat((x1, x2), dim=0)
+    return x, diff
 
-        # print(prompted_sentence)
 
-        prompted_sentence = tokenize(prompted_sentence).to(device)
-        class_embeddings = model.encode_text(prompted_sentence)
-        # class_embedding = class_embeddings.mean(dim=0)
-        # print("class_embeddings 1: ", class_embeddings.shape)
-        class_embeddings /= class_embeddings.norm(dim=-1, keepdim=True)
-        # print("class_embeddings 2: ", class_embeddings.shape)
-        class_embedding = class_embeddings.mean(dim=0)
-        class_embedding /= class_embedding.norm()
-        text_features.append(class_embedding)
-        text_features_list.append(class_embeddings)
-
-    text_features = torch.stack(text_features, dim=1).to(device)
-    text_features = text_features.cuda()
-    # text_features_list = torch.stack(text_features_list, dim=2).to(device)
-    # print("text_features shape: ", text_features.shape)
-    # print("text_features_list shape: ", text_features_list.shape)
-    return text_features
+def image_recover(x, diff):
+    B, C, H, W = x.shape
+    x_tmp = torch.zeros(1, C, H, W + diff)
+    x_tmp[:, :, :, :diff] = x[:1, :, :, :diff]
+    x_tmp[:, :, :, diff:W] = (
+        x[:1, :, :, diff:] + x[1:, :, :, : W - diff].unsqueeze(0)
+    ) / 2
+    x_tmp[:, :, :, W:] = x[1:, :, :, W - diff :].unsqueeze(0)
+    return x_tmp
 
 
 def cos_sim(a, b, eps=1e-8):

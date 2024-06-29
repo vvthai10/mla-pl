@@ -5,17 +5,20 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
+from CLIP.tokenizer import tokenize
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.adapter import CLIP_Inplanted
+from CLIP.adapter import CLIP_Inplanted, TextAdapter
 from loss import FocalLoss, BinaryDiceLoss
-from utils import encode_text_with_prompt_ensemble
+from prompt_ensemble import encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
 
 import warnings
 
+
 warnings.filterwarnings("ignore")
 
+HF_HUB_PREFIX = "hf-hub:"
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 torch.backends.cudnn.benchmark = True
@@ -29,7 +32,8 @@ CLASS_INDEX = {
     "Retina_OCT2017": -1,
     "Chest": -2,
     "Histopathology": -3,
-}  #
+}
+
 CLASS_INDEX_INV = {
     3: "Brain",
     2: "Liver",
@@ -113,28 +117,28 @@ def main():
         param.requires_grad = True
 
     # Optimizers
-    seg_optimizer = torch.optim.AdamW(
+    seg_optimizer = torch.optim.Adam(
         list(model.seg_adapters.parameters()),
         lr=args.learning_rate,
         betas=(0.5, 0.999),
         weight_decay=args.weight_decay,
     )
 
-    det_optimizer = torch.optim.AdamW(
+    det_optimizer = torch.optim.Adam(
         list(model.det_adapters.parameters()),
         lr=args.learning_rate,
         betas=(0.5, 0.999),
         weight_decay=args.weight_decay,
     )
 
-    decoder_optimizer = torch.optim.AdamW(
+    decoder_optimizer = torch.optim.Adam(
         list(model.decoder.parameters()),
         lr=args.learning_rate,
         betas=(0.5, 0.999),
         weight_decay=args.weight_decay,
     )
 
-    text_proj_optimizer = torch.optim.AdamW(
+    text_proj_optimizer = torch.optim.Adam(
         list(model.text_proj.parameters()),
         lr=args.learning_rate,
         betas=(0.5, 0.999),
@@ -161,6 +165,7 @@ def main():
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
     text_feature_list = [0]
+    # text_adapters = [0]
 
     # text prompt
     with torch.cuda.amp.autocast(), torch.no_grad():
@@ -171,6 +176,18 @@ def main():
                 device,
             )
             text_feature_list.append(text_feature)
+            # text_adapters.append(TextAdapter(class_embeddings_list).to(device))
+
+    # text_optimizers = [
+    #     torch.optim.Adam(
+    #         list(text_adapter.parameters()),
+    #         lr=args.learning_rate,
+    #         betas=(0.5, 0.999),
+    #         weight_decay=args.weight_decay,
+    #     )
+    #     for text_adapter in text_adapters
+    #     if text_adapter != 0
+    # ]
 
     save_score = 0.0
 
@@ -182,7 +199,9 @@ def main():
         p.numel() for p in model.seg_adapters.parameters() if p.requires_grad
     )
 
-    total_dec_params = sum(p.numel() for p in model.decoder.parameters() if p.requires_grad)
+    total_dec_params = sum(
+        p.numel() for p in model.decoder.parameters() if p.requires_grad
+    )
 
     total_text_proj_params = sum(
         p.numel() for p in model.text_proj.parameters() if p.requires_grad
@@ -217,7 +236,6 @@ def main():
 
         loss_list = []
         for image, image_label, mask, seg_idx in tqdm(train_loader):
-
             image = image.squeeze(0).to(device)
             seg_idx = seg_idx.item()
 
@@ -231,19 +249,11 @@ def main():
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
 
-                for layer in range(len(det_patch_tokens)):
-                    det_patch_tokens[layer] = det_patch_tokens[
-                        layer
-                    ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    anomaly_map = (
-                        100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx]
-                    )
+                for layer, tokens  in enumerate(det_patch_tokens):
+                    tokens = tokens / tokens.norm(dim=-1, keepdim=True)
+                    anomaly_map = 100.0 * tokens @ text_feature_list[seg_idx]
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
-                    # print("scores:", anomaly_score.shape)
-                    # print("scores:", anomaly_score)
-                    # print("Label: ", image_label.shape)
-                    # print("Label: ", image_label)
                     det_loss += loss_bce(anomaly_score, image_label)
 
                 if seg_idx > 0:
@@ -252,12 +262,12 @@ def main():
                     mask = mask.squeeze(0).to(device)
                     mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
-                    for layer in range(len(seg_patch_tokens)):
+                    for layer, tokens in enumerate(seg_patch_tokens):
 
                         if layer == 0:
-                            x = seg_patch_tokens[layer]
+                            x = tokens
                         else:
-                            x = 0.5 * x + 0.5 * seg_patch_tokens[layer]
+                            x = 0.5 * x + 0.5 * tokens
 
                         x, anomaly_map = model.decode(
                             patch_tokens=x,
@@ -277,9 +287,7 @@ def main():
                         seg_loss += loss_focal(anomaly_map, mask)
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
 
-                    loss = (
-                        seg_loss + det_loss
-                    )  # = focal(seg_out, mask) + bce(det_out, y)
+                    loss = seg_loss + det_loss
 
                     loss.requires_grad_(True)
 
@@ -287,6 +295,7 @@ def main():
                     det_optimizer.zero_grad()
                     decoder_optimizer.zero_grad()
                     text_proj_optimizer.zero_grad()
+                    # text_optimizers[seg_idx].zero_grad()
 
                     loss.backward()
 
@@ -294,7 +303,7 @@ def main():
                     det_optimizer.step()
                     decoder_optimizer.step()
                     text_proj_optimizer.step()
-
+                    # text_optimizers[seg_idx].step()
                 else:
                     loss = det_loss
                     loss.requires_grad_(True)
@@ -302,12 +311,14 @@ def main():
                     det_optimizer.zero_grad()
                     decoder_optimizer.zero_grad()
                     text_proj_optimizer.zero_grad()
+                    # text_optimizers[seg_idx].zero_grad()
 
                     loss.backward()
 
                     det_optimizer.step()
                     decoder_optimizer.step()
                     text_proj_optimizer.step()
+                    # text_optimizers[seg_idx].step()
 
                 loss_list.append(loss.item())
 
@@ -338,9 +349,9 @@ def test(args, seg_model, test_loader, text_features):
             # image
             anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
-            for layer in range(len(patch_tokens)):
-                patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
+            for layer, tokens in enumerate(patch_tokens):
+                tokens /= tokens.norm(dim=-1, keepdim=True)
+                anomaly_map = (100.0 * tokens @ text_features).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
 
@@ -349,13 +360,11 @@ def test(args, seg_model, test_loader, text_features):
             # pixel
             patch_tokens = ori_seg_patch_tokens
             anomaly_maps = []
-            for layer in range(len(patch_tokens)):
+            for layer, tokens in enumerate(patch_tokens):
                 if layer == 0:
-                    x = patch_tokens[layer]
+                    x = tokens
                 else:
-                    x = 0.5 * x + 0.5 * patch_tokens[layer]
-                # patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                # anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
+                    x = 0.5 * x + 0.5 * tokens
                 x, anomaly_map = seg_model.decode(
                     patch_tokens=x, text_features=text_features, ith=layer
                 )

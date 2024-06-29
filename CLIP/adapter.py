@@ -1,14 +1,91 @@
-import math
-
-
 import torch
 from torch import nn
+from torch.nn import functional as F
+
+class TextAdapter(nn.Module):
+    def __init__(self, text_embeddings, label=None, beta=5.5):
+        super(TextAdapter, self).__init__()
+        # self.text_layer = nn.Linear(text_embeddings.shape[1], text_embeddings.shape[0], bias=False).to(text_embeddings.device)
+        # self.text_layer.weight = nn.Parameter(text_embeddings)
+        text_embeddings = torch.cat(
+            (text_embeddings[..., 0], text_embeddings[..., 1]), dim=0
+        )
+        print("Text embeddings: ", text_embeddings.shape)
+        self.ad = torch.nn.Linear(text_embeddings.shape[1], text_embeddings.shape[0])
+        # self.n =  nn.Linear(text_embeddings.shape[1], text_embeddings.shape[0], bias=False).to(text_embeddings.device)
+        self.text_embeddings = text_embeddings
+        # self.weights = nn.Parameter(text_embeddings)
+        # self.label = F.one_hot(label.to(torch.int64)).float()
+        self.noise_level = 1
+        self.mask_ratio = 0.25
+        self.beta = beta
+
+    # def init_parameter(self,):
+    # self.ad.weight.data = self.text_embeddings
+    # self.weights.data = self.text_embeddings
+
+    def adapter(self, img):
+        img = img / img.norm(dim=-1, keepdim=True)
+
+        affinity = self.ad(
+            img
+        )
+        affinity = torch.tanh(affinity)
+        output = F.linear(affinity, self.text_embeddings.t())
+        return output
+
+    def mask_aug(self, true_feats):
+        N, H, W, C = true_feats.shape
+
+        ids_noise = torch.rand(N, H * W, device=true_feats.device)
+        ids_shuffle = torch.argsort(ids_noise, dim=1)
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+        len_mask = int(H * W * self.mask_ratio)
+
+        noise = torch.normal(0, 0.05 * 1.1**2, true_feats.shape).to(true_feats.device)
+        fake_feats = [true_feats]
+        noise_masks = []
+        for i in range(int(1 / self.mask_ratio)):
+            mask = torch.zeros([N, H * W], device=true_feats.device)
+            if i != int(1 / self.mask_ratio):
+                mask[:, i * len_mask : (i + 1) * len_mask] = 1
+            else:
+                mask[:, i * len_mask :] = 1
+            noise_mask = torch.gather(mask, dim=1, index=ids_restore)
+            noise_masks.append(noise_mask)
+            fake_feat = true_feats + noise * noise_mask.view(N, H, W, 1)
+            fake_feats.append(fake_feat)
+        return torch.stack(fake_feats, dim=0).view(-1, H, W, C), torch.stack(
+            noise_masks, dim=0
+        ).view(-1, H, W, 1)
+
+    def aug(self, true_feat):
+        N, H, W, C = true_feat.shape
+        feat_list = [true_feat]
+        for n in range(self.noise_level):
+            noise = torch.normal(0, 0.05 * 1.1 ** (n + 1), true_feat.shape).to(
+                true_feat.device
+            )
+            fake_feat = true_feat + noise
+            feat_list.append(fake_feat)
+        return torch.stack(feat_list, dim=0).view(-1, H, W, C)
+
+    def forward(self, x, is_test=False, scale=0.1):
+        if not is_test:
+            x = self.aug(x)
+        if len(x.shape) == 4:
+            N, H, W, C = x.shape
+            x = 0.5 * x.view(N, H * W, C) + 0.5 * self.adapter(x.view(N, H * W, C))
+            x = x.view(N, H, W, C)
+        else:
+            x = 0.5 * x + 0.5 * self.adapter(x)
+        return x
 
 
 # Residual CLIP Adapter
-class ClipAdapter(nn.Module):
+class VisualAdapter(nn.Module):
     def __init__(self, c_in, bottleneck=768):
-        super(ClipAdapter, self).__init__()
+        super(VisualAdapter, self).__init__()
         self.fc1 = nn.Sequential(
             nn.Linear(c_in, bottleneck, bias=False),
             nn.LeakyReLU(inplace=False),
@@ -41,12 +118,12 @@ class CLIP_Inplanted(nn.Module):
 
         # Segment Adapter
         self.seg_adapters = nn.ModuleList(
-            [ClipAdapter(1024, bottleneck=seg_reduce_dim) for i in range(len(features))]
+            [VisualAdapter(1024, bottleneck=seg_reduce_dim) for i in range(len(features))]
         )
 
         # Classification Adapter
         self.det_adapters = nn.ModuleList(
-            [ClipAdapter(1024, bottleneck=det_reduce_dim) for i in range(len(features))]
+            [VisualAdapter(1024, bottleneck=det_reduce_dim) for i in range(len(features))]
         )
 
         self.decoder = nn.ModuleList(
@@ -97,11 +174,11 @@ class CLIP_Inplanted(nn.Module):
 
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[
                     self.features.index(i + 1)
-                ](x[0])
+                ](x[1])
 
                 det_adapt_med, det_adapt_out = self.det_adapters[
                     self.features.index(i + 1)
-                ](x[0])
+                ](x[1])
 
                 x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
 
