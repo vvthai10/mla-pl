@@ -2,6 +2,7 @@ import os
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
+from torchvision.transforms import v2
 from PIL import Image
 import random
 import pandas as pd
@@ -42,15 +43,22 @@ class MedTrainDataset(Dataset):
         self.data = self.load_dataset_folder()
 
         # set transforms
-        self.transform_x = transforms.Compose(
+        self.transform_x = v2.Compose(
             [
-                transforms.Resize((resize, resize), Image.BICUBIC),
-                transforms.ToTensor(),
+                v2.Resize((resize, resize), Image.BICUBIC),
+                v2.RandomHorizontalFlip(p=0.5),
+                v2.RandomRotation(30),
+                v2.ToTensor(),
+                v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
 
-        self.transform_mask = transforms.Compose(
-            [transforms.Resize((resize, resize), Image.NEAREST), transforms.ToTensor()]
+        self.transform_mask = v2.Compose(
+            [
+                v2.Resize((resize, resize), Image.NEAREST),
+                v2.ToTensor(),
+                v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
         )
 
     def __getitem__(self, idx):
@@ -239,15 +247,20 @@ class MedTestDataset(Dataset):
         self.x, self.y, self.mask = self.load_dataset_folder(self.seg_flag)
 
         # set transforms
-        self.transform_x = transforms.Compose(
+        self.transform_x = v2.Compose(
             [
-                transforms.Resize((resize, resize), Image.BICUBIC),
-                transforms.ToTensor(),
+                v2.Resize((resize, resize), Image.BICUBIC),
+                v2.ToTensor(),
+                v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
         )
 
-        self.transform_mask = transforms.Compose(
-            [transforms.Resize((resize, resize), Image.NEAREST), transforms.ToTensor()]
+        self.transform_mask = v2.Compose(
+            [
+                v2.Resize((resize, resize), Image.NEAREST),
+                v2.ToTensor(),
+                v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
         )
 
     def __getitem__(self, idx):

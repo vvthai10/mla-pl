@@ -5,10 +5,9 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from CLIP.tokenizer import tokenize
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.adapter import CLIP_Inplanted, TextAdapter
+from CLIP.adapter import CLIP_Inplanted
 from loss import FocalLoss, BinaryDiceLoss
 from prompt_ensemble import encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
@@ -249,7 +248,7 @@ def main():
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
 
-                for layer, tokens  in enumerate(det_patch_tokens):
+                for layer, tokens in enumerate(det_patch_tokens):
                     tokens = tokens / tokens.norm(dim=-1, keepdim=True)
                     anomaly_map = 100.0 * tokens @ text_feature_list[seg_idx]
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
