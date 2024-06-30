@@ -100,7 +100,7 @@ def main():
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        if epoch >= 0:
+        if epoch > 0:
             score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
             if score >= save_score:
                 save_score = score
@@ -118,9 +118,13 @@ def main():
             seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(image, text_embeddings_list[seg_idx])
+                image_features, seg_patch_tokens, det_patch_tokens = model(image, text_embeddings_list[seg_idx])
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
+
+                image_features /= image_features.norm(dim=-1, keepdim=True)
+                text_probs = (image_features @ text_feature_list[seg_idx]).softmax(dim=-1)
+                text_probs = text_probs[:, 0]
 
                 # image level
                 det_loss = 0
@@ -187,12 +191,16 @@ def test(args, seg_model, test_loader, text_features, text_embeddings):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
+            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
+
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+            text_probs = (image_features @ text_features).softmax(dim=-1)
+            text_probs = text_probs[:, 0]
             
             # image
-            anomaly_score = 0
+            anomaly_score = text_probs
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)

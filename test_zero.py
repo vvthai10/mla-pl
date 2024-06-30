@@ -87,18 +87,20 @@ def main():
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
 
-    text_feature_list = [0]
+    ttext_feature_list = [0]
+    text_embeddings_list = [0]
     # text prompt
     with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1,2,3,-3,-2,-1]:
-            text_feature = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+        for i in [1,2,3,-3,-2,-1]: #
+            text_feature, text_embeddings = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
             text_feature_list.append(text_feature)
+            text_embeddings_list.append(text_embeddings)
 
-    score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]])
+    score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
         
 
 
-def test(args, seg_model, test_loader, text_features):
+def test(args, seg_model, test_loader, text_features, text_embeddings):
     gt_list = []
     gt_mask_list = []
     image_scores = []
@@ -109,7 +111,7 @@ def test(args, seg_model, test_loader, text_features):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
+            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
             

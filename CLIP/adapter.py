@@ -36,7 +36,7 @@ class CLIP_Inplanted(nn.Module):
         self.image_encoder = clip_model.visual
         self.features = features
         self.seg_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
-        self.det_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
+        self.det_adapters = nn.ModuleList( [ClipAdapter(768, bottleneck=384) for i in range(len(features))] )
 
 
     def forward(self, x, text_embeddings):
@@ -65,20 +65,33 @@ class CLIP_Inplanted(nn.Module):
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](0.5*x[0] + 0.5*x[1])
                 det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x[1])
                 # x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
-
                 seg_adapt_out = F.linear(seg_adapt_out, text_embeddings.t())
                 seg_adapt_med = 0.5*seg_adapt_med + 0.5*seg_adapt_out
-
-                det_adapt_out = F.linear(det_adapt_out, text_embeddings.t())
-                det_adapt_med = 0.5 * det_adapt_med + 0.5 * det_adapt_out
-
+                # det_adapt_out = F.linear(det_adapt_out, text_embeddings.t())
+                # det_adapt_med = 0.5 * det_adapt_med + 0.5 * det_adapt_out
                 seg_patch_tokens.append(seg_adapt_med)
-                det_patch_tokens.append(det_adapt_med)
+                # det_patch_tokens.append(det_adapt_med)
+
+                det_in = x[1]
+                det_in = det_in.permute(1, 0, 2)
+                det_in = det_in @ self.image_encoder.proj
+                det_in = det_in.permute(1, 0, 2)
+                _, det_adapt_out = self.det_adapters[self.features.index(i + 1)](det_in)
+                det_patch_tokens.append(det_adapt_out)
 
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]
         det_patch_tokens = [det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))]
 
-        return None, seg_patch_tokens, det_patch_tokens
+        x = x[1]
+        x = x.permute(1, 0, 2)
+
+        pooled, tokens = self.image_encoder._global_pool(x)
+        pooled = self.image_encoder.ln_post(pooled)
+
+        if self.image_encoder.proj is not None:
+            pooled = pooled @ self.image_encoder.proj
+
+        return pooled, seg_patch_tokens, det_patch_tokens
 
 
 

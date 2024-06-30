@@ -7,8 +7,10 @@ from CLIP.tokenizer import tokenize
 
 
 def encode_text_with_prompt_ensemble(model, obj, device):
-    prompt_normal = ['{}', 'flawless {}', 'perfect {}', 'unblemished {}', '{} without flaw', '{} without defect', '{} without damage', '{} with no abnormalities']
-    prompt_abnormal = ["damaged {}", "abnormal {}", "imperfect {}", "blemished {}", "{} with flaw", "{} with defect", "{} with damage", "{} with irregularity"]
+    prompt_normal = ['{}', 'flawless {}', 'perfect {}', 'unblemished {}', '{} without flaw', '{} without defect',
+                     '{} without damage', '{} with no abnormalities']
+    prompt_abnormal = ["damaged {}", "abnormal {}", "imperfect {}", "blemished {}", "{} with flaw", "{} with defect",
+                       "{} with damage", "{} with irregularity"]
     prompt_state = [prompt_normal, prompt_abnormal]
     # prompt_templates = ['a bad photo of a {}.', 'a low resolution photo of the {}.', 'a bad photo of the {}.', 'a cropped photo of the {}.', 'a bright photo of a {}.', 'a dark photo of the {}.', 'a photo of my {}.', 'a photo of the cool {}.', 'a close-up photo of a {}.', 'a black and white photo of the {}.', 'a bright photo of the {}.', 'a cropped photo of a {}.', 'a jpeg corrupted photo of a {}.', 'a blurry photo of the {}.', 'a photo of the {}.', 'a good photo of the {}.', 'a photo of one {}.', 'a close-up photo of the {}.', 'a photo of a {}.', 'a low resolution photo of a {}.', 'a photo of a large {}.', 'a blurry photo of a {}.', 'a jpeg corrupted photo of the {}.', 'a good photo of a {}.', 'a photo of the small {}.', 'a photo of the large {}.', 'a black and white photo of a {}.', 'a dark photo of a {}.', 'a photo of a cool {}.', 'a photo of a small {}.', 'there is a {} in the scene.', 'there is the {} in the scene.', 'this is a {} in the scene.', 'this is the {} in the scene.', 'this is one {} in the scene.']
     prompt_templates = PROMPT_TEMPLATES
@@ -47,56 +49,61 @@ def get_rot_mat(theta):
     return torch.tensor([[torch.cos(theta), -torch.sin(theta), 0],
                          [torch.sin(theta), torch.cos(theta), 0]])
 
+
 def get_translation_mat(a, b):
     return torch.tensor([[1, 0, a],
                          [0, 1, b]])
 
+
 def rot_img(x, theta):
-    dtype =  torch.FloatTensor
-    rot_mat = get_rot_mat(theta)[None, ...].type(dtype).repeat(x.shape[0],1,1)
+    dtype = torch.FloatTensor
+    rot_mat = get_rot_mat(theta)[None, ...].type(dtype).repeat(x.shape[0], 1, 1)
     grid = F.affine_grid(rot_mat, x.size()).type(dtype)
     x = F.grid_sample(x, grid, padding_mode="reflection")
     return x
 
+
 def translation_img(x, a, b):
-    dtype =  torch.FloatTensor
-    rot_mat = get_translation_mat(a, b)[None, ...].type(dtype).repeat(x.shape[0],1,1)
+    dtype = torch.FloatTensor
+    rot_mat = get_translation_mat(a, b)[None, ...].type(dtype).repeat(x.shape[0], 1, 1)
     grid = F.affine_grid(rot_mat, x.size()).type(dtype)
     x = F.grid_sample(x, grid, padding_mode="reflection")
     return x
+
 
 def hflip_img(x):
     x = K.geometry.transform.hflip(x)
     return x
 
+
 def vflip_img(x):
     x = K.geometry.transform.vflip(x)
     return x
 
-def rot90_img(x,k):
+
+def rot90_img(x, k):
     # k is 0,1,2,3
     degreesarr = [0., 90., 180., 270., 360]
     degrees = torch.tensor(degreesarr[k])
-    x = K.geometry.transform.rotate(x, angle = degrees, padding_mode='reflection')
+    x = K.geometry.transform.rotate(x, angle=degrees, padding_mode='reflection')
     return x
 
 
 def augment(fewshot_img, fewshot_mask=None):
-
     augment_fewshot_img = fewshot_img
 
     if fewshot_mask is not None:
         augment_fewshot_mask = fewshot_mask
 
         # rotate img
-        for angle in [-np.pi/8, -np.pi/16, np.pi/16, np.pi/8]:
+        for angle in [-np.pi / 8, -np.pi / 16, np.pi / 16, np.pi / 8]:
             rotate_img = rot_img(fewshot_img, angle)
             augment_fewshot_img = torch.cat([augment_fewshot_img, rotate_img], dim=0)
 
             rotate_mask = rot_img(fewshot_mask, angle)
             augment_fewshot_mask = torch.cat([augment_fewshot_mask, rotate_mask], dim=0)
         # translate img
-        for a,b in [(0.1,0.1), (-0.1,0.1), (-0.1,-0.1), (0.1,-0.1)]:
+        for a, b in [(0.1, 0.1), (-0.1, 0.1), (-0.1, -0.1), (0.1, -0.1)]:
             trans_img = translation_img(fewshot_img, a, b)
             augment_fewshot_img = torch.cat([augment_fewshot_img, trans_img], dim=0)
 
@@ -118,12 +125,12 @@ def augment(fewshot_img, fewshot_mask=None):
 
     else:
         # rotate img
-        for angle in [-np.pi/8, -np.pi/16, np.pi/16, np.pi/8]:
+        for angle in [-np.pi / 8, -np.pi / 16, np.pi / 16, np.pi / 8]:
             rotate_img = rot_img(fewshot_img, angle)
             augment_fewshot_img = torch.cat([augment_fewshot_img, rotate_img], dim=0)
 
         # translate img
-        for a,b in [(0.1,0.1), (-0.1,0.1), (-0.1,-0.1), (0.1,-0.1)]:
+        for a, b in [(0.1, 0.1), (-0.1, 0.1), (-0.1, -0.1), (0.1, -0.1)]:
             trans_img = translation_img(fewshot_img, a, b)
             augment_fewshot_img = torch.cat([augment_fewshot_img, trans_img], dim=0)
 
@@ -137,72 +144,73 @@ def augment(fewshot_img, fewshot_mask=None):
 
         B, _, H, W = augment_fewshot_img.shape
         augment_fewshot_mask = torch.zeros([B, 1, H, W])
-    
+
     return augment_fewshot_img, augment_fewshot_mask
 
+
 PROMPT_TEMPLATES = [
-  "a bad photo of a {}.",
-  "a low resolution photo of the {}.",
-  "a cropped photo of the {}.",
-  "a bright photo of a {}.",
-  "a dark photo of the {}.",
-  "a photo of my {}.",
-  "a photo of the cool {}.",
-  "a close-up photo of a {}.",
-  "a black and white photo of the {}.",
-  "a bright photo of the {}.",
-  "a cropped photo of a {}.",
-  "a jpeg corrupted photo of a {}.",
-  "a blurry photo of the {}.",
-  "a good photo of the {}.",
-  "a photo of one {}.",
-  "a close-up photo of the {}.",
-  "a photo of a {}.",
-  "a low resolution photo of a {}.",
-  "a photo of a large {}.",
-  "a blurry photo of a {}.",
-  "a jpeg corrupted photo of the {}.",
-  "a good photo of a {}.",
-  "a photo of the small {}.",
-  "a photo of the large {}.",
-  "a black and white photo of a {}.",
-  "a photo of a cool {}.",
-  "there is a {} in the scene.",
-  "this is one {} in the scene.",
-  "a grainy photo of a {}.",
-  "a washed-out photo of the {}.",
-  "a detailed photo of a {}.",
-  "a zoomed-out photo of the {}.",
-  "a clear photo of the {}.",
-  "an overexposed photo of a {}.",
-  "an underexposed photo of the {}.",
-  "a shadowy photo of the {}.",
-  "a photo of a well-lit {}.",
-  "a photo of a dimly lit {}.",
-  "a high contrast photo of the {}.",
-  "a low contrast photo of a {}.",
-  "a color photo of the {}.",
-  "a monochrome photo of a {}.",
-  "a vibrant photo of the {}.",
-  "a photo of a sharp {}.",
-  "a photo of a blurry {}.",
-  "a photo of a detailed {}.",
-  "a photo of a smooth {}.",
-  "a photo of the {} from a distance.",
-  "a close-up shot of the {}.",
-  "a photo with a {} in the foreground.",
-  "a poorly lit photo of the {}.",
-  "a well-lit photo of a {}.",
-  "a distorted photo of the {}.",
-  "an artistic photo of a {}.",
-  "a stylized photo of the {}.",
-  "a candid photo of the {}.",
-  "a posed photo of a {}.",
-  "an angled photo of the {}.",
-  "a centered photo of a {}.",
-  "an off-center photo of the {}.",
-  "a tilted photo of a {}.",
-  "a level photo of the {}.",
-  "a vertical photo of a {}.",
-  "a horizontal photo of the {}."
+    "a bad photo of a {}.",
+    "a low resolution photo of the {}.",
+    "a cropped medical photo of the {}.",
+    "a bright medical photo of a {}.",
+    "a dark photo of the {}.",
+    "a medical photo of my {}.",
+    "a photo of the cool {}.",
+    "a close-up photo of a {}.",
+    "a black and white photo of the {}.",
+    "a bright photo of the {}.",
+    "a cropped medical photo of a {}.",
+    "a jpeg corrupted photo of a {}.",
+    "a blurry photo of the {}.",
+    "a good photo of the {}.",
+    "a medical photo of one {}.",
+    "a close-up photo of the {}.",
+    "a medical photo of a {}.",
+    "a low resolution photo of a {}.",
+    "a medical photo of a large {}.",
+    "a medical blurry photo of a {}.",
+    "a jpeg corrupted photo of the {}.",
+    "a good photo of a {}.",
+    "a medical photo of the small {}.",
+    "a medical photo of the large {}.",
+    "a black and white photo of a {}.",
+    "a photo of a cool {}.",
+    "there is a {} in the scene.",
+    "this is one {} in the scene.",
+    "a grainy photo of a {}.",
+    "a washed-out photo of the {}.",
+    "a detailed photo of a {}.",
+    "a zoomed-out photo of the {}.",
+    "a clear photo of the {}.",
+    "an overexposed photo of a {}.",
+    "an underexposed photo of the {}.",
+    "a shadowy photo of the {}.",
+    "a photo of a well-lit {}.",
+    "a photo of a dimly lit {}.",
+    "a high contrast photo of the {}.",
+    "a low contrast photo of a {}.",
+    "a color photo of the {}.",
+    "a monochrome photo of a {}.",
+    "a vibrant photo of the {}.",
+    "a medical photo of a sharp {}.",
+    "a medical photo of a blurry {}.",
+    "a medical photo of a detailed {}.",
+    "a medical photo of a smooth {}.",
+    "a photo of the {} from a distance.",
+    "a close-up shot of the {}.",
+    "a photo with a {} in the foreground.",
+    "a poorly lit photo of the {}.",
+    "a well-lit photo of a {}.",
+    "a distorted photo of the {}.",
+    "an artistic photo of a {}.",
+    "a stylized photo of the {}.",
+    "a candid photo of the {}.",
+    "a posed photo of a {}.",
+    "an angled photo of the {}.",
+    "a centered photo of a {}.",
+    "an off-center photo of the {}.",
+    "a tilted photo of a {}.",
+    "a level photo of the {}.",
+    "a vertical medical photo of a {}.",
+    "a horizontal medical photo of the {}."
 ]
