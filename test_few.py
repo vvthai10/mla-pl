@@ -245,9 +245,6 @@ def test(args, model, test_loader, text_features, seg_mem_features, det_mem_feat
         return img_roc_auc_det
 
 
-
-
-
 if __name__ == '__main__':
     main()
 

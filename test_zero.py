@@ -1,22 +1,16 @@
 import os
 import argparse
 import random
-import math
 import numpy as np
 import torch
-from torch import nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-from scipy.ndimage import gaussian_filter
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.tokenizer import tokenize
 from CLIP.adapter import CLIP_Inplanted
-from PIL import Image
-from sklearn.metrics import precision_recall_curve
 from loss import FocalLoss, BinaryDiceLoss
-from utils import augment, encode_text_with_prompt_ensemble
+from utils import  encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
 
 import warnings
