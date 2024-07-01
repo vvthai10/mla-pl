@@ -17,7 +17,8 @@ from PIL import Image
 from sklearn.metrics import precision_recall_curve
 from loss import FocalLoss, BinaryDiceLoss
 from utils import augment, encode_text_with_prompt_ensemble
-from prompt import REAL_NAME
+from prompt import REAL_NAME, prompts
+from cocoop import PromptMaker
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -57,6 +58,7 @@ def main():
     
     # fixed feature extractor
     clip_model = create_model(model_name=args.model_name, img_size=args.img_size, device=device, pretrained=args.pretrain, require_pretrained=True)
+    clip_model.to(device)
     clip_model.eval()
     clip_model.visual.DAPM_replace(DPAM_layer = 20)
 
@@ -66,8 +68,16 @@ def main():
     for name, param in model.named_parameters():
         param.requires_grad = True
 
+    prompt_maker = PromptMaker(
+        prompts=prompts,
+        clip_model=clip_model,
+        n_ctx=8,  # args.config.n_learnable_token
+        CSC=True,  # args.config.CSC
+        class_token_position=['end'],  # args.config.class_token_positions
+    ).to(device)
 
     # optimizer for only adapters
+    prompt_optimizer = torch.optim.Adam(list(prompt_maker.prompt_learner.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
 
@@ -87,28 +97,29 @@ def main():
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
 
-    text_feature_list = [0]
-    text_embeddings_list = [0]
+    # text_feature_list = [0]
+    # text_embeddings_list = [0]
     # text prompt
-    with torch.cuda.amp.autocast(), torch.no_grad():
-        for i in [1,2,3,-3,-2,-1]: #
-            text_feature, text_embeddings = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
-            text_feature_list.append(text_feature)
-            text_embeddings_list.append(text_embeddings)
+    # with torch.cuda.amp.autocast(), torch.no_grad():
+    #     for i in [1,2,3,-3,-2,-1]: #
+    #         text_feature, text_embeddings = encode_text_with_prompt_ensemble(clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device)
+    #         text_feature_list.append(text_feature)
+    #         text_embeddings_list.append(text_embeddings)
 
     save_score = 0.0
-
+    prompt_maker.train()
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
         if epoch > 0:
-            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
-            if score >= save_score:
+            score = test(args, model, test_loader, prompt_maker)
+            if True:
                 save_score = score
-                ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
+                ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}_{epoch}.pth'
                 torch.save({'seg_adapters': model.seg_adapters.state_dict(),
-                            'det_adapters': model.det_adapters.state_dict()},
+                            'det_adapters': model.det_adapters.state_dict(),
+                            'prompt': prompt_maker.prompt_learner.state_dict()},
                            ckp_path)
-                print(f'best epoch found: epoch {epoch} ')
+                print(f'best epoch found: epoch {epoch} with value {score} ')
             print('\n')
 
         loss_list = []
@@ -118,20 +129,18 @@ def main():
             seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
-                image_features, seg_patch_tokens, det_patch_tokens = model(image, text_embeddings_list[seg_idx])
+                image_features, seg_patch_tokens, det_patch_tokens = model(image)
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                text_probs = (image_features @ text_feature_list[seg_idx]).softmax(dim=-1)
-                text_probs = text_probs[:, 0]
+                prompt_adapter_features = prompt_maker(image_features)
 
                 # image level
                 det_loss = 0
                 image_label = image_label.squeeze(0).to(device)
                 for layer in range(len(det_patch_tokens)):
                     det_patch_tokens[layer] = det_patch_tokens[layer] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    anomaly_map = (100.0 * det_patch_tokens[layer] @ text_feature_list[seg_idx])
+                    anomaly_map = (100.0 * det_patch_tokens[layer] @ prompt_adapter_features)
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -145,7 +154,7 @@ def main():
                     for layer in range(len(seg_patch_tokens)):
                         seg_patch_tokens[layer] = seg_patch_tokens[layer] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
                         # print(seg_patch_tokens[layer].shape, text_feature_list[seg_idx].shape) # torch.Size([289, 768]) torch.Size([768, 2])
-                        anomaly_map = (100.0 * seg_patch_tokens[layer] @ text_feature_list[seg_idx])
+                        anomaly_map = (100.0 * seg_patch_tokens[layer] @ prompt_adapter_features)
                         B, L, C = anomaly_map.shape
                         H = int(np.sqrt(L))
                         anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H),
@@ -156,17 +165,21 @@ def main():
                     
                     loss = seg_loss + det_loss # = focal(seg_out, mask) + bce(det_out, y)
                     loss.requires_grad_(True)
+                    prompt_optimizer.zero_grad()
                     seg_optimizer.zero_grad()
                     det_optimizer.zero_grad()
                     loss.backward()
+                    prompt_optimizer.step()
                     seg_optimizer.step()
                     det_optimizer.step()
 
                 else:
                     loss = det_loss
                     loss.requires_grad_(True)
+                    prompt_optimizer.zero_grad()
                     det_optimizer.zero_grad()
                     loss.backward()
+                    prompt_optimizer.step()
                     det_optimizer.step()
 
                 loss_list.append(loss.item())
@@ -178,9 +191,7 @@ def main():
         print("Loss: ", np.mean(loss_list))
         
 
-
-
-def test(args, seg_model, test_loader, text_features, text_embeddings):
+def test(args, seg_model, test_loader, prompt_maker):
     gt_list = []
     gt_mask_list = []
     image_scores = []
@@ -191,20 +202,18 @@ def test(args, seg_model, test_loader, text_features, text_embeddings):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
+            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            text_probs = (image_features @ text_features).softmax(dim=-1)
-            text_probs = text_probs[:, 0]
-            
+            prompt_adapter_features = prompt_maker(image_features)
+
             # image
-            anomaly_score = text_probs
+            anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompt_adapter_features).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
             image_scores.append(anomaly_score.cpu())
@@ -214,7 +223,7 @@ def test(args, seg_model, test_loader, text_features, text_embeddings):
             anomaly_maps = []
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (100.0 * patch_tokens[layer] @ text_features).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompt_adapter_features).unsqueeze(0)
                 B, L, C = anomaly_map.shape
                 H = int(np.sqrt(L))
                 anomaly_map = F.interpolate(anomaly_map.permute(0, 2, 1).view(B, 2, H, H),

@@ -8,3 +8,30 @@ TEMPLATES = ['a cropped photo of the {}.', 'a cropped photo of a {}.', 'a close-
 
 REAL_NAME = {'Brain': 'Brain', 'Liver':'Liver', 'Retina_RESC':'retinal OCT', 'Chest':'Chest X-ray film', 'Retina_OCT2017':'retinal OCT', 'Histopathology':'histopathological image'}
 
+prompts = {
+    "normal": [
+        "normal",
+        "healthy",
+        "negative",
+        "unremarkable",
+        "clear",
+        "asymptomatic",
+        "normal findings",
+        "no findings",
+        "in good health",
+        "no evidence of disease"
+    ],
+    "abnormal": [
+        "abnormal",
+        "positive",
+        "symptomatic",
+        "disease",
+        "lesion",
+        "pathological",
+        "impaired",
+        "evidence of disease",
+        "abnormal finding",
+        "pathological condition",
+        "pathological abnormality"
+    ]
+}
