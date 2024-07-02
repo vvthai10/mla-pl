@@ -70,12 +70,12 @@ class CLIP_Inplanted(nn.Module):
             if (i + 1) in self.features:
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[
                     self.features.index(i + 1)
-                ](x[1])
+                ](x[0]) # x0 => v-v, v1 -> x_origin
                 det_adapt_med, det_adapt_out = self.det_adapters[
                     self.features.index(i + 1)
-                ](x[1])
+                ](x[0])
 
-                x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
+                # x[1] = 0.8 * x[1] + 0.1 * seg_adapt_out + 0.1 * det_adapt_out
 
                 seg_patch_tokens.append(seg_adapt_med)
                 det_patch_tokens.append(det_adapt_med)
