@@ -3,7 +3,17 @@ import torch.nn as nn
 from open_clip.tokenizer import SimpleTokenizer, tokenize
 import torch.nn.functional as F
 
-prompts = {
+REAL_NAME = {
+    "Brain": "Brain MRI film",
+    "Liver": "Liver CT 3D",
+    "Retina_RESC": "Retinal OCT",
+    "Chest": "Chest X-ray film",
+    "Retina_OCT2017": "Retinal OCT",
+    "Histopathology": "Histopathological image",
+}
+
+
+PROMPTS = {
     "normal": [
         "normal",
         "healthy",
@@ -224,6 +234,7 @@ class PromptMaker(nn.Module):
         n_ctx: int = 8,  # prompt max len
         CSC: bool = True,  # True or False multi prompt
         class_token_position: list = ["end"],  # cls position
+        prompts = PROMPTS
     ):
 
         super().__init__()

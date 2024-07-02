@@ -91,6 +91,7 @@ def main():
     model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(
         device
     )
+    clip_model.visual.DAPM_replace(DPAM_layer=20)
     model.eval()
 
     clip_model.device = device
