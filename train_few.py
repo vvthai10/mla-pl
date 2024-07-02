@@ -119,7 +119,7 @@ def main():
     )
 
     # load test dataset
-    kwargs = {"num_workers": 8, "pin_memory": True} if use_cuda else {}
+    kwargs = {"num_workers": 16, "pin_memory": True} if use_cuda else {}
     test_dataset = MedDataset(
         args.data_path, args.obj, args.img_size, args.shot, args.iterate
     )
@@ -277,8 +277,7 @@ def main():
             args,
             model,
             test_loader,
-            det_prompts_feat,
-            seg_prompts_feat,
+            prompt_maker,
             seg_mem_features,
             det_mem_features,
         )
@@ -301,8 +300,7 @@ def test(
     args,
     model,
     test_loader,
-    det_prompts_feat,
-    seg_prompts_feat,
+    prompt_maker,
     seg_mem_features,
     det_mem_features,
 ):
@@ -323,7 +321,8 @@ def test(
             _, seg_patch_tokens, det_patch_tokens = model(image)
             seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
             det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
-
+            det_prompts_feat = prompt_maker(det_patch_tokens)
+            seg_prompts_feat = prompt_maker(seg_patch_tokens)
             if CLASS_INDEX[args.obj] > 0:
 
                 # few-shot, seg head
@@ -351,7 +350,7 @@ def test(
                         dim=-1, keepdim=True
                     )
                     anomaly_map = (
-                        100.0 * seg_patch_tokens[layer] @ det_prompts_feat
+                        100.0 * seg_patch_tokens[layer] @ seg_prompts_feat
                     ).unsqueeze(0)
                     B, L, C = anomaly_map.shape
                     H = int(np.sqrt(L))
@@ -393,7 +392,7 @@ def test(
                         dim=-1, keepdim=True
                     )
                     anomaly_map = (
-                        100.0 * det_patch_tokens[layer] @ seg_prompts_feat
+                        100.0 * det_patch_tokens[layer] @ det_prompts_feat
                     ).unsqueeze(0)
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score += anomaly_map.mean()

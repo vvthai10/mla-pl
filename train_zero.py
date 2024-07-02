@@ -218,7 +218,6 @@ def main():
                     learnable_prompt_optimizer.step()
 
                 else:
-                    pass
                     loss = det_loss
                     loss.requires_grad_(True)
                     det_optimizer.zero_grad()
@@ -271,7 +270,7 @@ def test(args, seg_model, test_loader, prompt_maker):
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            det_prompts_feat = prompt_maker(ori_seg_patch_tokens)
+            det_prompts_feat = prompt_maker(ori_det_patch_tokens)
             seg_prompts_feat = prompt_maker(ori_seg_patch_tokens)
 
             # image
