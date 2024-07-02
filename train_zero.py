@@ -242,7 +242,7 @@ def main():
             score = test(args, model, test_loader, prompt_maker)
             if score >= save_score:
                 save_score = score
-                ckp_path = f"{args.ckpt_path}/zero-shot/{args.obj}.pth"
+                ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
                 os.makedirs(Path(ckp_path).parent, exist_ok=True)
                 torch.save(
                     {
