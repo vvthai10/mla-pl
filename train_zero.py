@@ -60,17 +60,13 @@ def main():
     clip_model.eval()
     clip_model.visual.DAPM_replace(DPAM_layer = 20)
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(device)
-    model.eval()
-
+    model = CLIP_Inplanted(features=args.features_list).to(device)
     for name, param in model.named_parameters():
         param.requires_grad = True
-
 
     # optimizer for only adapters
     seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
     det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
-
 
     # load dataset and loader
     kwargs = {'num_workers': 4, 'pin_memory': True} if use_cuda else {}
@@ -80,12 +76,10 @@ def main():
     test_dataset = MedTestDataset(args.data_path, args.obj, args.img_size)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, **kwargs)
 
-
     # losses
     loss_focal = FocalLoss()
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
-
 
     text_feature_list = [0]
     text_embeddings_list = [0]
@@ -100,8 +94,8 @@ def main():
 
     for epoch in range(args.epoch):
         print('epoch', epoch, ':')
-        if epoch > 0:
-            score = test(args, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
+        if epoch >= 0:
+            score = test(args, clip_model, model, test_loader, text_feature_list[CLASS_INDEX[args.obj]], text_embeddings_list[CLASS_INDEX[args.obj]])
             if score >= save_score:
                 save_score = score
                 ckp_path = f'{args.ckpt_path}/zero-shot/{args.obj}.pth'
@@ -117,14 +111,13 @@ def main():
             image = image.squeeze(0).to(device)
             seg_idx = seg_idx.item()
 
+            with torch.no_grad():
+                seg_tokens, det_tokens = clip_model(image)
+
             with torch.cuda.amp.autocast():
-                image_features, seg_patch_tokens, det_patch_tokens = model(image, text_embeddings_list[seg_idx])
+                seg_patch_tokens, det_patch_tokens = model(seg_tokens,det_tokens, text_embeddings_list[seg_idx])
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
-
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                text_probs = (image_features @ text_feature_list[seg_idx]).softmax(dim=-1)
-                text_probs = text_probs[:, 0]
 
                 # image level
                 det_loss = 0
@@ -180,7 +173,7 @@ def main():
 
 
 
-def test(args, seg_model, test_loader, text_features, text_embeddings):
+def test(args, clip_model, model, test_loader, text_features, text_embeddings):
     gt_list = []
     gt_mask_list = []
     image_scores = []
@@ -191,7 +184,8 @@ def test(args, seg_model, test_loader, text_features, text_embeddings):
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image, text_embeddings)
+            seg_tokens, det_tokens = clip_model(image)
+            image_features, ori_seg_patch_tokens, ori_det_patch_tokens = model(seg_tokens, det_tokens, text_embeddings)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 

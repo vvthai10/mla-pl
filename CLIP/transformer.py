@@ -461,57 +461,85 @@ class VisionTransformer(nn.Module):
 
     def forward(self, x: torch.Tensor, out_layers: list):
 
-        # to patches - whether to use dual patchnorm - https://arxiv.org/abs/2302.01327v1
-        if self.input_patchnorm:
-            # einops - rearrange(x, 'b c (h p1) (w p2) -> b (h w) (c p1 p2)')
-            x = x.reshape(x.shape[0], x.shape[1], self.grid_size[0], self.patch_size[0], self.grid_size[1], self.patch_size[1])
-            x = x.permute(0, 2, 4, 1, 3, 5)
-            x = x.reshape(x.shape[0], self.grid_size[0] * self.grid_size[1], -1)
-            x = self.patchnorm_pre_ln(x)
-            x = self.conv1(x)
-        else:
-            x = self.conv1(x)  # shape = [*, width, grid, grid]
-            x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
-            x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        # # to patches - whether to use dual patchnorm - https://arxiv.org/abs/2302.01327v1
+        # if self.input_patchnorm:
+        #     # einops - rearrange(x, 'b c (h p1) (w p2) -> b (h w) (c p1 p2)')
+        #     x = x.reshape(x.shape[0], x.shape[1], self.grid_size[0], self.patch_size[0], self.grid_size[1], self.patch_size[1])
+        #     x = x.permute(0, 2, 4, 1, 3, 5)
+        #     x = x.reshape(x.shape[0], self.grid_size[0] * self.grid_size[1], -1)
+        #     x = self.patchnorm_pre_ln(x)
+        #     x = self.conv1(x)
+        # else:
+        #     x = self.conv1(x)  # shape = [*, width, grid, grid]
+        #     x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
+        #     x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+        #
+        # # class embeddings and positional embeddings
+        # x = torch.cat(
+        #     [self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device),
+        #      x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        # x = x + self.positional_embedding.to(x.dtype)
+        #
+        # # a patch_dropout of 0. would mean it is disabled and this function would do nothing but return what was passed in
+        # x = self.patch_dropout(x)
+        # x = self.ln_pre(x)
+        #
+        # x = x.permute(1, 0, 2)  # NLD -> LND
+        #
+        # x, attn, patch_tokens = self.transformer(x, out_layers)
+        #
+        # # attn = attn[0, 0, 1:].view(14, 14)  # 49
+        # B, C, L = attn[0].shape
+        # H = int(math.sqrt(L-1))
+        # out_attn = torch.zeros([H, H]).to('cuda')
+        # for i in range(len(attn)):
+        #     out_attn += attn[i][0, 0, 1:].view(H, H)
+        # x = x.permute(1, 0, 2)  # LND -> NLD
+        # patch_tokens = [patch_tokens[t].permute(1, 0, 2) for t in range(len(patch_tokens))]  # LND -> NLD
+        #
+        # if self.attn_pool is not None:
+        #     x = self.attn_pool(x)
+        #     x = self.ln_post(x)
+        #     pooled, tokens = self._global_pool(x)
+        # else:
+        #     pooled, tokens = self._global_pool(x)
+        #     pooled = self.ln_post(pooled)
+        #
+        # if self.proj is not None:
+        #     pooled = pooled @ self.proj
+        #
+        # if self.output_tokens:
+        #     return pooled, patch_tokens
+        #
+        # return pooled, patch_tokens
+        x = self.conv1(x)
+        x = x.reshape(x.shape[0], x.shape[1], -1)
+        x = x.permute(0, 2, 1)
 
-        # class embeddings and positional embeddings
         x = torch.cat(
-            [self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device),
-             x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+            [self.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype,
+                                                                          device=x.device),
+             x], dim=1)
         x = x + self.positional_embedding.to(x.dtype)
 
-        # a patch_dropout of 0. would mean it is disabled and this function would do nothing but return what was passed in
         x = self.patch_dropout(x)
         x = self.ln_pre(x)
 
-        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = x.permute(1, 0, 2)
 
-        x, attn, patch_tokens = self.transformer(x, out_layers)
-        
-        # attn = attn[0, 0, 1:].view(14, 14)  # 49
-        B, C, L = attn[0].shape
-        H = int(math.sqrt(L-1))
-        out_attn = torch.zeros([H, H]).to('cuda')
-        for i in range(len(attn)):
-            out_attn += attn[i][0, 0, 1:].view(H, H)
-        x = x.permute(1, 0, 2)  # LND -> NLD
-        patch_tokens = [patch_tokens[t].permute(1, 0, 2) for t in range(len(patch_tokens))]  # LND -> NLD
+        seg_patch_tokens_in = []
+        det_patch_tokens_in = []
+        features = [6,12,18,24]
 
-        if self.attn_pool is not None:
-            x = self.attn_pool(x)
-            x = self.ln_post(x)
-            pooled, tokens = self._global_pool(x)
-        else:
-            pooled, tokens = self._global_pool(x)
-            pooled = self.ln_post(pooled)
+        for i in range(24):
+            x = self.transformer.resblocks[i](x)
+            if (i + 1) in features:
+                x_vv, x_ori = x
+                x_vv[0] = x_ori[0]
+                seg_patch_tokens_in.append(x_vv)
+                det_patch_tokens_in.append(x_vv)
 
-        if self.proj is not None:
-            pooled = pooled @ self.proj
-
-        if self.output_tokens:
-            return pooled, patch_tokens
-
-        return pooled, patch_tokens
+        return seg_patch_tokens_in, det_patch_tokens_in
 
 class ResidualAttentionBlockForText(nn.Module):
     def __init__(
