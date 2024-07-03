@@ -174,6 +174,46 @@ def main():
         print("epoch ", epoch, ":")
 
         loss_list = []
+        seg_features = []
+        det_features = []
+        for image in support_loader:
+            image = image[0].to(device)
+            with torch.no_grad():
+                _, seg_patch_tokens, det_patch_tokens = model(image)
+                seg_patch_tokens = [p[0].contiguous() for p in seg_patch_tokens]
+                det_patch_tokens = [p[0].contiguous() for p in det_patch_tokens]
+                seg_features.append(seg_patch_tokens)
+                det_features.append(det_patch_tokens)
+        seg_mem_features = [
+            torch.cat([seg_features[j][i] for j in range(len(seg_features))], dim=0)
+            for i in range(len(seg_features[0]))
+        ]
+        det_mem_features = [
+            torch.cat([det_features[j][i] for j in range(len(det_features))], dim=0)
+            for i in range(len(det_features[0]))
+        ]
+
+        result = test(
+            args,
+            model,
+            test_loader,
+            prompt_maker,
+            seg_mem_features,
+            det_mem_features,
+        )
+        if result > best_result:
+            best_result = result
+            print("Best result\n")
+            if args.save_model == 1:
+                ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
+                torch.save(
+                    {
+                        "seg_adapters": model.seg_adapters.state_dict(),
+                        "det_adapters": model.det_adapters.state_dict(),
+                        "prompt_learner": prompt_maker.prompt_learner.state_dict(),
+                    },
+                    ckp_path,
+                )
         for image, gt, label in train_loader:
             image = image.to(device)
             with torch.cuda.amp.autocast():
@@ -253,47 +293,6 @@ def main():
                 loss_list.append(loss.item())
 
         print("Loss: ", np.mean(loss_list))
-
-        seg_features = []
-        det_features = []
-        for image in support_loader:
-            image = image[0].to(device)
-            with torch.no_grad():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
-                seg_patch_tokens = [p[0].contiguous() for p in seg_patch_tokens]
-                det_patch_tokens = [p[0].contiguous() for p in det_patch_tokens]
-                seg_features.append(seg_patch_tokens)
-                det_features.append(det_patch_tokens)
-        seg_mem_features = [
-            torch.cat([seg_features[j][i] for j in range(len(seg_features))], dim=0)
-            for i in range(len(seg_features[0]))
-        ]
-        det_mem_features = [
-            torch.cat([det_features[j][i] for j in range(len(det_features))], dim=0)
-            for i in range(len(det_features[0]))
-        ]
-
-        result = test(
-            args,
-            model,
-            test_loader,
-            prompt_maker,
-            seg_mem_features,
-            det_mem_features,
-        )
-        if result > best_result:
-            best_result = result
-            print("Best result\n")
-            if args.save_model == 1:
-                ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
-                torch.save(
-                    {
-                        "seg_adapters": model.seg_adapters.state_dict(),
-                        "det_adapters": model.det_adapters.state_dict(),
-                        "prompt_learner": prompt_maker.prompt_learner.state_dict(),
-                    },
-                    ckp_path,
-                )
 
 
 def test(
@@ -402,7 +401,13 @@ def test(
             gt_list.extend(y.cpu().detach().numpy())
 
     gt_list = np.array(gt_list)
+
+    print("gt_mask_list len: ", len(gt_mask_list))
+    print("gt_mask_list[0] shape: ", gt_mask_list.shape)
     gt_mask_list = np.asarray(gt_mask_list)
+
+    print("gt_mask_list len: ", len(gt_mask_list))
+    print("gt_mask_list[0] shape: ", gt_mask_list.shape)
     gt_mask_list = (gt_mask_list > 0).astype(np.int_)
 
     if CLASS_INDEX[args.obj] > 0:

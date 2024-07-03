@@ -4,6 +4,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 import random
+
 CLASS_NAMES = [
     "Bone",
     "Brain",
