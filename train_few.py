@@ -403,11 +403,13 @@ def test(
     gt_list = np.array(gt_list)
 
     print("gt_mask_list len: ", len(gt_mask_list))
-    print("gt_mask_list[0] shape: ", gt_mask_list.shape)
+    for i in range(len(gt_mask_list)):
+        print(f"gt_mask_list[{i}] shape: ", gt_mask_list[i].shape)
     gt_mask_list = np.asarray(gt_mask_list)
 
     print("gt_mask_list len: ", len(gt_mask_list))
-    print("gt_mask_list[0] shape: ", gt_mask_list.shape)
+    for i in range(len(gt_mask_list)):
+        print(f"gt_mask_list[{i}] shape: ", gt_mask_list[i].shape)
     gt_mask_list = (gt_mask_list > 0).astype(np.int_)
 
     if CLASS_INDEX[args.obj] > 0:
