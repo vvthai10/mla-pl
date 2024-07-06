@@ -13,10 +13,10 @@ from sklearn.metrics import roc_auc_score
 from loss import FocalLoss, BinaryDiceLoss
 from utils import augment, cos_sim
 from prompt import prompts
+import warnings
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-import warnings
 
 warnings.filterwarnings("ignore")
 
@@ -95,6 +95,9 @@ def main():
     )
     model.eval()
 
+    for name, param in model.named_parameters():
+        param.requires_grad = True
+
     prompt_maker = PromptMaker(
         batch_size=args.batch_size,
         prompts=prompts,
@@ -103,16 +106,6 @@ def main():
         CSC=True,  # args.config.CSC
         class_token_position=["end"],  # args.config.class_token_positions
     ).to(device)
-    prompt_maker.train()
-
-    # optimizer for only adapters
-    prompt_optimizer = torch.optim.Adam(
-        list(prompt_maker.prompt_learner.parameters()),
-        lr=args.learning_rate,
-        betas=(0.5, 0.999),
-    )
-    for name, param in model.named_parameters():
-        param.requires_grad = True
 
     # optimizer for only adapters
     seg_optimizer = torch.optim.Adam(
@@ -122,6 +115,12 @@ def main():
         list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
     )
 
+    # optimizer for only adapters
+    prompt_optimizer = torch.optim.Adam(
+        list(prompt_maker.prompt_learner.parameters()),
+        lr=args.learning_rate,
+        betas=(0.5, 0.999),
+    )
     # load test dataset
     kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
     test_dataset = MedDataset(
@@ -172,20 +171,21 @@ def main():
 
     best_result = 0
 
-    for epoch in range(args.epoch):
+    prompt_maker.train()
+    for epoch in tqdm(range(args.epoch)):
         print("epoch ", epoch, ":")
 
         loss_list = []
-        for image, gt, label in train_loader:
+        for image, gt, label in tqdm(train_loader):
             image = image.to(device)
-            with torch.cuda.amp.autocast(),  torch.autograd.set_detect_anomaly(True):
+            with torch.cuda.amp.autocast():
                 (
                     _,
                     [seg_patch_tokens, det_patch_tokens],
                     [seg_patch_outs, det_patch_outs],
                 ) = model(image)
-                seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
-                det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
+                seg_patch_tokens = [p[:, 1:, :].clone() for p in seg_patch_tokens]
+                det_patch_tokens = [p[:, 1:, :].clone() for p in det_patch_tokens]
 
                 prompt_adapter_features = prompt_maker(seg_patch_outs, det_patch_outs)
 
@@ -198,23 +198,27 @@ def main():
                     ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
                     anomaly_map = (
                         100.0 * det_patch_tokens[layer] @ prompt_adapter_features
-                    ).unsqueeze(0)
-                    anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
+                    )
+                    with torch.no_grad():
+                        anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
-                    det_loss += loss_bce(anomaly_score, image_label)
+                    det_loss = det_loss + loss_bce(anomaly_score, image_label)
 
                 if CLASS_INDEX[args.obj] > 0:
+                    print(1)
                     # pixel level
                     seg_loss = 0
                     mask = gt.squeeze(0).to(device)
                     mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
+                    # mask = (mask > 0.5).float()
+
                     for layer in range(len(seg_patch_tokens)):
                         seg_patch_tokens[layer] = seg_patch_tokens[
                             layer
                         ] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
                         anomaly_map = (
                             100.0 * seg_patch_tokens[layer] @ prompt_adapter_features
-                        ).unsqueeze(0)
+                        )
                         B, L, C = anomaly_map.shape
                         H = int(np.sqrt(L))
                         anomaly_map = F.interpolate(
@@ -223,28 +227,29 @@ def main():
                             mode="bilinear",
                             align_corners=True,
                         )
-                        anomaly_map = torch.softmax(anomaly_map, dim=1)
-                        seg_loss += loss_focal(anomaly_map, mask)
-                        seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
+                        with torch.no_grad():
+                            anomaly_map = torch.softmax(anomaly_map, dim=1)
+                        seg_loss = seg_loss + loss_focal(anomaly_map, mask)
+                        seg_loss = seg_loss + loss_dice(anomaly_map[:, 1, :, :], mask)
 
                     loss = seg_loss + det_loss
                     loss.requires_grad_(True)
+                    prompt_optimizer.zero_grad()
                     seg_optimizer.zero_grad()
                     det_optimizer.zero_grad()
-                    prompt_optimizer.zero_grad()
                     loss.backward()
+                    prompt_optimizer.step()
                     seg_optimizer.step()
                     det_optimizer.step()
-                    prompt_optimizer.step()
 
                 else:
                     loss = det_loss
                     loss.requires_grad_(True)
-                    det_optimizer.zero_grad()
                     prompt_optimizer.zero_grad()
+                    det_optimizer.zero_grad()
                     loss.backward()
-                    det_optimizer.step()
                     prompt_optimizer.step()
+                    det_optimizer.step()
 
                 loss_list.append(loss.item())
 
@@ -255,7 +260,12 @@ def main():
         for image in support_loader:
             image = image[0].to(device)
             with torch.no_grad():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
+                (
+                    _,
+                    [seg_patch_tokens, det_patch_tokens],
+                    [seg_patch_outs, det_patch_outs],
+                ) = model(image)
+
                 seg_patch_tokens = [p[0].contiguous() for p in seg_patch_tokens]
                 det_patch_tokens = [p[0].contiguous() for p in det_patch_tokens]
                 seg_features.append(seg_patch_tokens)
@@ -307,8 +317,8 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                 [seg_patch_tokens, det_patch_tokens],
                 [seg_patch_outs, det_patch_outs],
             ) = model(image)
-            seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
-            det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
+            seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
+            det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
             prompt_adapter_features = prompt_maker(seg_patch_outs, det_patch_outs)
 
@@ -335,12 +345,12 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                 # zero-shot, seg head
                 anomaly_maps = []
                 for layer in range(len(seg_patch_tokens)):
-                    seg_patch_tokens[layer] /= seg_patch_tokens[layer].norm(
-                        dim=-1, keepdim=True
-                    )
+                    seg_patch_tokens[layer] = seg_patch_tokens[
+                        layer
+                    ] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
                     anomaly_map = (
                         100.0 * seg_patch_tokens[layer] @ prompt_adapter_features
-                    ).unsqueeze(0)
+                    )
                     B, L, C = anomaly_map.shape
                     H = int(np.sqrt(L))
                     anomaly_map = F.interpolate(
@@ -377,14 +387,14 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                 # zero-shot, det head
                 anomaly_score = 0
                 for layer in range(len(det_patch_tokens)):
-                    det_patch_tokens[layer] /= det_patch_tokens[layer].norm(
-                        dim=-1, keepdim=True
-                    )
+                    det_patch_tokens[layer] = det_patch_tokens[
+                        layer
+                    ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
                     anomaly_map = (
                         100.0 * det_patch_tokens[layer] @ prompt_adapter_features
-                    ).unsqueeze(0)
+                    )
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
-                    anomaly_score += anomaly_map.mean()
+                    anomaly_score = anomaly_score + anomaly_map.mean()
                 det_image_scores_zero.append(anomaly_score.cpu().numpy())
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
