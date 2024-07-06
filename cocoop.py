@@ -32,6 +32,7 @@ class TextEncoder(nn.Module):
 
 class PromptLearner(nn.Module):
     def __init__(self,
+                 batch_size,
                  prompts,
                  n_ctx, # prompt max len
                  CSC, # True or False multi prompt
@@ -88,11 +89,29 @@ class PromptLearner(nn.Module):
             ("relu", nn.ReLU(inplace=True)),
             ("linear2", nn.Linear(vis_dim // 16, ctx_dim))
         ]))
+        # self.meta_nets = nn.ModuleList([nn.Sequential(OrderedDict([
+        #     ("linear1", nn.Linear(vis_dim, vis_dim // 16)),
+        #     ("relu", nn.ReLU(inplace=True)),
+        #     ("linear2", nn.Linear(vis_dim // 16, ctx_dim))
+        # ])) for i in range(4)])
 
-    def forward(self, image_features):
+    def forward(self, seg_patch_outs, det_patch_outs):
+        image_features = None
+        for i in range(len(seg_patch_outs)):
+            seg_patch_outs[i] = seg_patch_outs[i] / seg_patch_outs[i].norm(dim=-1, keepdim=True)
+            det_patch_outs[i] = det_patch_outs[i] / det_patch_outs[i].norm(dim=-1, keepdim=True)
+            each = 0.5 * seg_patch_outs[i] + 0.5 * det_patch_outs[i]
+
+            if image_features is None:
+                image_features = each
+            else:
+                image_features += each
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+
         bias = self.meta_net(image_features)  # (batch, ctx_dim)
+        bias = torch.sum(bias, dim=0, keepdim=True)
+        bias = bias / bias.norm(dim=-1, keepdim=True)
         bias = bias.unsqueeze(1)  # (batch, 1, ctx_dim)
-        bias = torch.mean(bias, dim=0, keepdim=True)
         # ctx_shifted = ctx + bias  # (batch, n_ctx, ctx_dim)
 
         cls_prompts = {}
@@ -104,7 +123,6 @@ class PromptLearner(nn.Module):
             cls_prompts[cls] = []
 
             for position in self.class_token_position:
-
                 ctx = self.ctx['{}_{}'.format(cls,position)]
                 if ctx.dim() == 2:
                     ctx = ctx.unsqueeze(0).expand(len(self.prompts_lens[cls]), -1, -1)
@@ -127,6 +145,7 @@ class PromptLearner(nn.Module):
 class PromptMaker(nn.Module):
 
     def __init__(self,
+                 batch_size,
                  prompts,
                  clip_model,
                  n_ctx: int=8,  # prompt max len
@@ -140,14 +159,14 @@ class PromptMaker(nn.Module):
         for position in class_token_position:
             assert  position in ['end','middle','front']
 
-        self.prompt_learner = PromptLearner(prompts, n_ctx, CSC, class_token_position, clip_model)
+        self.prompt_learner = PromptLearner(batch_size,prompts, n_ctx, CSC, class_token_position, clip_model)
         self.tokenized_prompts = self.prompt_learner.tokenized_prompts
 
         self.class_token_position = class_token_position
         self.text_encoder = TextEncoder(clip_model)
 
-    def forward(self, image_features):
-        prompts = self.prompt_learner(image_features)
+    def forward(self, seg_patch_outs, det_patch_outs):
+        prompts = self.prompt_learner(seg_patch_outs, det_patch_outs)
         tokenized_prompts = self.tokenized_prompts
         text_features=[]
 
