@@ -72,7 +72,7 @@ def main():
     parser.add_argument("--img_size", type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
     parser.add_argument(
-        "--learning_rate", type=float, default=0.0001, help="learning rate"
+        "--learning_rate", type=float, default=1e-4, help="learning rate"
     )
     parser.add_argument(
         "--features_list",
@@ -118,7 +118,7 @@ def main():
     # optimizer for only adapters
     prompt_optimizer = torch.optim.Adam(
         list(prompt_maker.prompt_learner.parameters()),
-        lr=args.learning_rate,
+        lr=1e-3,
         betas=(0.5, 0.999),
     )
     seg_optimizer = torch.optim.Adam(
@@ -129,7 +129,7 @@ def main():
     )
 
     # load dataset and loader
-    kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
+    kwargs = {"num_workers": 16, "pin_memory": True} if use_cuda else {}
     train_dataset = MedTrainDataset(
         args.data_path, args.obj, args.img_size, args.batch_size
     )
@@ -142,14 +142,14 @@ def main():
         test_dataset, batch_size=1, shuffle=False, **kwargs
     )
 
-    checkpoint = torch.load(
-        os.path.join(
-            f"/content/drive/MyDrive/Thesis/bubuchacha_2/zero-shot/Liver_7.pth"
-        )
-    )
-    model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
-    model.det_adapters.load_state_dict(checkpoint["det_adapters"])
-    prompt_maker.prompt_learner.load_state_dict(checkpoint["prompt"])
+    # checkpoint = torch.load(
+    #     os.path.join(
+    #         f"/content/drive/MyDrive/Thesis/bubuchacha_2/zero-shot/Liver_7.pth"
+    #     )
+    # )
+    # model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
+    # model.det_adapters.load_state_dict(checkpoint["det_adapters"])
+    # prompt_maker.prompt_learner.load_state_dict(checkpoint["prompt"])
 
     # losses
     loss_focal = FocalLoss()
@@ -169,11 +169,13 @@ def main():
     prompt_maker.train()
     for epoch in range(args.epoch):
         print("epoch", epoch, ":")
-        if epoch >= 0:
+        if epoch > 0:
             score = test(args, model, test_loader, prompt_maker)
             if True:
                 save_score = score
                 ckp_path = f"{args.ckpt_path}/zero-shot/{args.obj}_{epoch}.pth"
+                # Create the directory if it does not exist
+                os.makedirs(os.path.dirname(ckp_path), exist_ok=True)
                 torch.save(
                     {
                         "seg_adapters": model.seg_adapters.state_dict(),
