@@ -255,7 +255,6 @@ def main():
 
         print("Loss: ", np.mean(loss_list))
 
-        
         seg_features = []
         det_features = []
         for image in support_loader:
@@ -289,7 +288,11 @@ def main():
             best_result = result
             print(f"best epoch found: epoch {epoch}")
             if args.save_model == 1:
-                ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
+                ckp_path = os.path.join(
+                    args.save_path, f"{args.obj}_{args.shot}-shot.pth"
+                )
+                # Create the directory if it does not exist
+                os.makedirs(os.path.dirname(ckp_path), exist_ok=True)
                 torch.save(
                     {
                         "seg_adapters": model.seg_adapters.state_dict(),
