@@ -99,6 +99,7 @@ def main():
     prompt_maker.train()
 
     # map_maker = MapMaker(image_size=args.config.image_size).to(device)
+    continue_epoch = 0
     if args.continue_path:
         checkpoint = torch.load(args.continue_path)
         model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
@@ -106,6 +107,7 @@ def main():
         prompt_maker.prompt_learner.load_state_dict(
             checkpoint["state_dict"]["prompt_learner"]
         )
+        continue_epoch = checkpoint["epoch"]
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -179,7 +181,7 @@ def main():
 
     best_result = 0
 
-    for epoch in range(args.epoch):
+    for epoch in tqdm(range(continue_epoch, args.epoch)):
         print("epoch ", epoch, ":")
 
         loss_list = []
