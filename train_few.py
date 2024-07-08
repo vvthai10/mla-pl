@@ -287,10 +287,27 @@ def main():
             det_mem_features,
         )
 
-        if result[0] > best_result:
-            best_result = result[0]
-            print("Best result\n")
-            if args.save_model == 1:
+        if args.save_model == 1:
+            
+            ckp_path = os.path.join(args.save_path, f"{args.obj}_lastest.pth")
+            os.makedirs(Path(ckp_path).parent, exist_ok=True)
+            torch.save(
+                {
+                    "state_dict": {
+                        "seg_adapters": model.seg_adapters.state_dict(),
+                        "det_adapters": model.det_adapters.state_dict(),
+                        "prompt_learner": prompt_maker.prompt_learner.state_dict(),
+                    },
+                    "AUC": result[1],
+                    "pAUC": result[2],
+                    "epoch": epoch,
+                },
+                ckp_path,
+            )
+
+            if result[0] > best_result:
+                best_result = result[0]
+                print("Best result\n")
                 ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
                 os.makedirs(Path(ckp_path).parent, exist_ok=True)
                 torch.save(
