@@ -6,7 +6,6 @@ from PIL import Image
 import random
 
 CLASS_NAMES = [
-    "Bone",
     "Brain",
     "Liver",
     "Retina_RESC",
@@ -15,7 +14,6 @@ CLASS_NAMES = [
     "Histopathology",
 ]  #
 CLASS_INDEX = {
-    "Bone": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
