@@ -162,7 +162,7 @@ def main():
         if epoch >= 0:
             score = test(args, model, test_loader, prompt_maker)
 
-            ckp_path = os.path.join(args.save_path, f"{args.obj}_lastest.pth")
+            ckp_path = os.path.join(args.ckpt_path, f"{args.obj}_lastest.pth")
             os.makedirs(Path(ckp_path).parent, exist_ok=True)
             torch.save(
                 {
