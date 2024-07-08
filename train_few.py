@@ -107,7 +107,7 @@ def main():
         prompt_maker.prompt_learner.load_state_dict(
             checkpoint["state_dict"]["prompt_learner"]
         )
-        continue_epoch = checkpoint["epoch"]
+        continue_epoch = checkpoint["epoch"] + 1
 
     for name, param in model.named_parameters():
         param.requires_grad = True
