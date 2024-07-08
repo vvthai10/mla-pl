@@ -181,7 +181,7 @@ def main():
 
     best_result = 0
 
-    for epoch in tqdm(range(continue_epoch, args.epoch)):
+    for epoch in range(continue_epoch, args.epoch):
         print("epoch ", epoch, ":")
 
         loss_list = []
