@@ -288,7 +288,7 @@ def main():
         )
 
         if result[0] > best_result:
-            best_result = result
+            best_result = result[0]
             print("Best result\n")
             if args.save_model == 1:
                 ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
