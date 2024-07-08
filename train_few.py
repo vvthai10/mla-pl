@@ -235,9 +235,9 @@ def main():
                         seg_loss += loss_focal(anomaly_map, mask)
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
 
-                    # loss = seg_loss + det_loss
-                    loss = 2 * seg_loss * det_loss / (seg_loss + det_loss)
-                    # loss.requires_grad_(True)
+                    loss = seg_loss + det_loss
+                    # loss = 2 * seg_loss * det_loss / (seg_loss + det_loss)
+                    loss.requires_grad_(True)
                     seg_optimizer.zero_grad()
                     det_optimizer.zero_grad()
                     learnable_prompt_optimizer.zero_grad()
@@ -248,7 +248,7 @@ def main():
 
                 else:
                     loss = det_loss
-                    # loss.requires_grad_(True)
+                    loss.requires_grad_(True)
                     det_optimizer.zero_grad()
                     learnable_prompt_optimizer.zero_grad()
                     loss.backward()
