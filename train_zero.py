@@ -161,6 +161,23 @@ def main():
         # Test
         if epoch >= 0:
             score = test(args, model, test_loader, prompt_maker)
+
+            ckp_path = os.path.join(args.save_path, f"{args.obj}_lastest.pth")
+            os.makedirs(Path(ckp_path).parent, exist_ok=True)
+            torch.save(
+                {
+                    "state_dict": {
+                        "seg_adapters": model.seg_adapters.state_dict(),
+                        "det_adapters": model.det_adapters.state_dict(),
+                        "prompt_learner": prompt_maker.prompt_learner.state_dict(),
+                    },
+                    "AUC": score[1],
+                    "pAUC": score[2],
+                    "epoch": epoch,
+                },
+                ckp_path,
+            )
+
             if score >= save_score:
                 save_score = score[0]
                 ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
