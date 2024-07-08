@@ -178,7 +178,7 @@ def main():
                 ckp_path,
             )
 
-            if score >= save_score:
+            if score[0] >= save_score:
                 save_score = score[0]
                 ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
                 os.makedirs(Path(ckp_path).parent, exist_ok=True)
