@@ -74,6 +74,7 @@ def main():
         help="features used",
     )
     parser.add_argument("--seed", type=int, default=111)
+    parser.add_argument("--continue_path", type=str, default=None, help="continue")
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -102,6 +103,16 @@ def main():
     # checkpoint = torch.load(os.path.join(f"./ckpt_ori/zero-shot/Liver.pth"))
     # model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
     # model.det_adapters.load_state_dict(checkpoint["det_adapters"])
+
+    continue_epoch = 0
+    if args.continue_path:
+        checkpoint = torch.load(args.continue_path)
+        model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
+        model.det_adapters.load_state_dict(checkpoint["state_dict"]["det_adapters"])
+        prompt_maker.prompt_learner.load_state_dict(
+            checkpoint["state_dict"]["prompt_learner"]
+        )
+        continue_epoch = checkpoint["epoch"] + 1
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -142,19 +153,33 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    # text_feature_list = [0]
-    # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     for i in [1, 2, 3, -3, -2, -1]:  #
-    #         text_feature = encode_text_with_prompt_ensemble(
-    #             clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device
-    #         )
-    #         text_feature_list.append(text_feature)
-
     save_score = 0.0
 
-    for epoch in range(args.epoch):
+    for epoch in range(continue_epoch, args.epoch):
         print("epoch", epoch, ":")
+
+        # Test
+        if epoch >= 0:
+            score = test(args, model, test_loader, prompt_maker)
+            if score >= save_score:
+                save_score = score[0]
+                ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
+                os.makedirs(Path(ckp_path).parent, exist_ok=True)
+                torch.save(
+                    {
+                        "state_dict": {
+                            "seg_adapters": model.seg_adapters.state_dict(),
+                            "det_adapters": model.det_adapters.state_dict(),
+                            "prompt_learner": prompt_maker.prompt_learner.state_dict(),
+                        },
+                        "AUC": score[1],
+                        "pAUC": score[2],
+                        "epoch": epoch,
+                    },
+                    ckp_path,
+                )
+                print(f"best epoch found: epoch {epoch} ")
+            print("\n")
 
         loss_list = []
         for image, image_label, mask, seg_idx in tqdm(train_loader):
@@ -167,8 +192,7 @@ def main():
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
-                det_prompts_feat = prompt_maker(det_patch_tokens)
-                seg_prompts_feat = prompt_maker(seg_patch_tokens)
+                prompts_feat = prompt_maker(det_patch_tokens)
 
                 # image level
                 det_loss = 0
@@ -177,7 +201,9 @@ def main():
                     det_patch_tokens[layer] = det_patch_tokens[
                         layer
                     ] / det_patch_tokens[layer].norm(dim=-1, keepdim=True)
-                    anomaly_map = 100.0 * det_patch_tokens[layer] @ det_prompts_feat
+                    anomaly_map = (
+                        100.0 * det_patch_tokens[layer] @ prompts_feat
+                    ).unsqueeze(0)
                     anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                     anomaly_score = torch.mean(anomaly_map, dim=-1)
                     det_loss += loss_bce(anomaly_score, image_label)
@@ -192,7 +218,9 @@ def main():
                             layer
                         ] / seg_patch_tokens[layer].norm(dim=-1, keepdim=True)
 
-                        anomaly_map = 100.0 * seg_patch_tokens[layer] @ seg_prompts_feat
+                        anomaly_map = (
+                            100.0 * seg_patch_tokens[layer] @ prompts_feat
+                        ).unsqueeze(0)
                         B, L, C = anomaly_map.shape
                         H = int(np.sqrt(L))
                         anomaly_map = F.interpolate(
@@ -235,24 +263,6 @@ def main():
 
         # logs
         print("Loss: ", np.mean(loss_list))
-
-        # Test
-        if epoch >= 0:
-            score = test(args, model, test_loader, prompt_maker)
-            if score >= save_score:
-                save_score = score
-                ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
-                os.makedirs(Path(ckp_path).parent, exist_ok=True)
-                torch.save(
-                    {
-                        "seg_adapters": model.seg_adapters.state_dict(),
-                        "det_adapters": model.det_adapters.state_dict(),
-                        "prompt_learner": prompt_maker.prompt_learner.state_dict(),
-                    },
-                    ckp_path,
-                )
-                print(f"best epoch found: epoch {epoch} ")
-            print("\n")
 
 
 def test(args, seg_model, test_loader, prompt_maker):
@@ -329,9 +339,9 @@ def test(args, seg_model, test_loader, prompt_maker):
     if CLASS_INDEX[args.obj] > 0:
         seg_roc_auc = roc_auc_score(gt_mask_list.flatten(), segment_scores.flatten())
         print(f"{args.obj} pAUC : {round(seg_roc_auc,4)}")
-        return seg_roc_auc + img_roc_auc_det
+        return seg_roc_auc + img_roc_auc_det, img_roc_auc_det, seg_roc_auc
     else:
-        return img_roc_auc_det
+        return img_roc_auc_det, img_roc_auc_det, None
 
 
 if __name__ == "__main__":
