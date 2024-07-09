@@ -101,6 +101,7 @@ def main():
     prompt_maker.train()
 
     continue_epoch = 0
+    best_result = 0
     if args.continue_path:
         checkpoint = torch.load(args.continue_path)
         model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
@@ -109,6 +110,12 @@ def main():
             checkpoint["state_dict"]["prompt_learner"]
         )
         continue_epoch = checkpoint["epoch"] + 1
+        best_result = checkpoint["AUC"]
+        print("Best result: ")
+        print("AUC: ", best_result)
+        if checkpoint["pAUC"]:
+            best_result += checkpoint["pAUC"]
+            print("pAUC: ", checkpoint["pAUC"])
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -149,8 +156,6 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    save_score = 0.0
-
     for epoch in range(continue_epoch, args.epoch):
         print("epoch", epoch, ":")
 
@@ -174,8 +179,8 @@ def main():
                 ckp_path,
             )
 
-            if score[0] >= save_score:
-                save_score = score[0]
+            if score[0] >= best_result:
+                best_result = score[0]
                 ckp_path = f"{args.ckpt_path}/{args.obj}.pth"
                 os.makedirs(Path(ckp_path).parent, exist_ok=True)
                 torch.save(

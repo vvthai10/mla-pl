@@ -112,9 +112,11 @@ def main():
 
         continue_epoch = checkpoint["epoch"] + 1
         best_result = checkpoint["AUC"]
-
+        print("Best result: ")
+        print("AUC: ", best_result)
         if checkpoint["pAUC"]:
             best_result += checkpoint["pAUC"]
+            print("pAUC: ", checkpoint["pAUC"])
 
     for name, param in model.named_parameters():
         param.requires_grad = True
