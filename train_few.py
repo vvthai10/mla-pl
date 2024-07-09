@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--img_size", type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
     parser.add_argument(
-        "--learning_rate", type=float, default=0.001, help="learning rate"
+        "--learning_rate", type=float, default=1e-4, help="learning rate"
     )
     parser.add_argument(
         "--features_list",
@@ -100,6 +100,8 @@ def main():
 
     # map_maker = MapMaker(image_size=args.config.image_size).to(device)
     continue_epoch = 0
+    best_result = 0
+
     if args.continue_path:
         checkpoint = torch.load(args.continue_path)
         model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
@@ -107,7 +109,12 @@ def main():
         prompt_maker.prompt_learner.load_state_dict(
             checkpoint["state_dict"]["prompt_learner"]
         )
+
         continue_epoch = checkpoint["epoch"] + 1
+        best_result = checkpoint["AUC"]
+
+        if checkpoint["pAUC"]:
+            best_result += checkpoint["pAUC"]
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -178,8 +185,6 @@ def main():
     #         clip_model, REAL_NAME[args.obj], device
     #     )
     # print("Original text features: ", text_features.shape)
-
-    best_result = 0
 
     for epoch in range(continue_epoch, args.epoch):
         print("epoch ", epoch, ":")
