@@ -42,7 +42,7 @@ class MedDataset(Dataset):
         self.seg_flag = CLASS_INDEX[class_name]
 
         # load dataset
-        self.x, self.y, self.mask = self.load_dataset_folder(self.seg_flag)
+        self.x, self.y, self.mask, self.pathes = self.load_dataset_folder(self.seg_flag)
 
         self.transform_x = transforms.Compose(
             [
@@ -59,7 +59,7 @@ class MedDataset(Dataset):
         self.fewshot_abnorm_img, self.fewshot_abnorm_mask = self.get_few_abnormal()
 
     def __getitem__(self, idx):
-        x, y, mask = self.x[idx], self.y[idx], self.mask[idx]
+        x, y, mask, pathes = self.x[idx], self.y[idx], self.mask[idx], self.pathes[idx]
         x = Image.open(x).convert("RGB")
         x_img = self.transform_x(x)
 
@@ -73,13 +73,13 @@ class MedDataset(Dataset):
             mask = Image.open(mask).convert("L")
             mask = self.transform_mask(mask)
             y = 1
-        return x_img, y, mask
+        return x_img, y, mask, pathes
 
     def __len__(self):
         return len(self.x)
 
     def load_dataset_folder(self, seg_flag):
-        x, y, mask = [], [], []
+        x, y, mask, pathes = [], [], [], []
 
         normal_img_dir = os.path.join(self.dataset_path, "test", "good", "img")
         img_fpath_list = sorted(
@@ -88,6 +88,7 @@ class MedDataset(Dataset):
         x.extend(img_fpath_list)
         y.extend([0] * len(img_fpath_list))
         mask.extend([None] * len(img_fpath_list))
+        pathes.extend(img_fpath_list)
 
         abnormal_img_dir = os.path.join(self.dataset_path, "test", "Ungood", "img")
         img_fpath_list = sorted(
@@ -95,6 +96,7 @@ class MedDataset(Dataset):
         )
         x.extend(img_fpath_list)
         y.extend([1] * len(img_fpath_list))
+        pathes.extend(img_fpath_list)
 
         if self.seg_flag > 0:
             gt_fpath_list = [f.replace("img", "anomaly_mask") for f in img_fpath_list]
@@ -103,7 +105,7 @@ class MedDataset(Dataset):
             mask.extend([None] * len(img_fpath_list))
 
         assert len(x) == len(y), "number of x and y should be same"
-        return list(x), list(y), list(mask)
+        return list(x), list(y), list(mask), list(pathes)
 
     def get_few_normal(self):
         x = []

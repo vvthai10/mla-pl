@@ -100,10 +100,6 @@ def main():
     ).to(device)
     prompt_maker.train()
 
-    # checkpoint = torch.load(os.path.join(f"./ckpt_ori/zero-shot/Liver.pth"))
-    # model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
-    # model.det_adapters.load_state_dict(checkpoint["det_adapters"])
-
     continue_epoch = 0
     if args.continue_path:
         checkpoint = torch.load(args.continue_path)
