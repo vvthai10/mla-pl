@@ -288,7 +288,7 @@ def main():
         )
 
         if args.save_model == 1:
-            
+
             ckp_path = os.path.join(args.save_path, f"{args.obj}_lastest.pth")
             os.makedirs(Path(ckp_path).parent, exist_ok=True)
             torch.save(
@@ -342,7 +342,7 @@ def test(
     seg_score_map_zero = []
     seg_score_map_few = []
 
-    for image, y, mask, pathes in tqdm(test_loader):
+    for image, y, mask in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 

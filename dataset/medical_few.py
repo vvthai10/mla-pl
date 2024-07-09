@@ -73,7 +73,7 @@ class MedDataset(Dataset):
             mask = Image.open(mask).convert("L")
             mask = self.transform_mask(mask)
             y = 1
-        return x_img, y, mask, pathes
+        return x_img, y, mask
 
     def __len__(self):
         return len(self.x)
