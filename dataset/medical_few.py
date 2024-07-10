@@ -105,7 +105,7 @@ class MedDataset(Dataset):
             mask.extend([None] * len(img_fpath_list))
 
         assert len(x) == len(y), "number of x and y should be same"
-        return list(x), list(y), list(mask)
+        return list(x), list(y), list(mask), list(pathes)
 
     def get_few_normal(self):
         x = []
