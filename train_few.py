@@ -23,6 +23,7 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 print(torch.__version__)
 
 CLASS_INDEX = {
+    "Bone": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -355,7 +356,7 @@ def test(
     seg_score_map_zero = []
     seg_score_map_few = []
 
-    for image, y, mask in tqdm(test_loader):
+    for image, y, mask, path in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
