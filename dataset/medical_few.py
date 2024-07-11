@@ -64,7 +64,7 @@ class MedDataset(Dataset):
         x_img = self.transform_x(x)
 
         if self.seg_flag < 0:
-            return x_img, y, torch.zeros([1, self.resize, self.resize])
+            return x_img, y, torch.zeros([1, self.resize, self.resize]), pathes
 
         if mask is None:
             mask = torch.zeros([1, self.resize, self.resize])
@@ -73,7 +73,7 @@ class MedDataset(Dataset):
             mask = Image.open(mask).convert("L")
             mask = self.transform_mask(mask)
             y = 1
-        return x_img, y, mask
+        return x_img, y, mask, pathes
 
     def __len__(self):
         return len(self.x)

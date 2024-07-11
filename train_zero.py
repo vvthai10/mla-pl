@@ -110,12 +110,16 @@ def main():
             checkpoint["state_dict"]["prompt_learner"]
         )
         continue_epoch = checkpoint["epoch"] + 1
-        best_result = checkpoint["AUC"]
         print("Best result: ")
-        print("AUC: ", best_result)
-        if checkpoint["pAUC"]:
-            best_result += checkpoint["pAUC"]
-            print("pAUC: ", checkpoint["pAUC"])
+        if checkpoint["best"]:
+            best_result = checkpoint["best"]
+            print(best_result)
+        else:
+            best_result = checkpoint["AUC"]
+            print("AUC: ", best_result)
+            if checkpoint["pAUC"]:
+                best_result += checkpoint["pAUC"]
+                print("pAUC: ", checkpoint["pAUC"])
 
     for name, param in model.named_parameters():
         param.requires_grad = True
@@ -174,6 +178,7 @@ def main():
                     },
                     "AUC": score[1],
                     "pAUC": score[2],
+                    "best": best_result,
                     "epoch": epoch,
                 },
                 ckp_path,
@@ -192,6 +197,7 @@ def main():
                         },
                         "AUC": score[1],
                         "pAUC": score[2],
+                        "best": best_result,
                         "epoch": epoch,
                     },
                     ckp_path,
