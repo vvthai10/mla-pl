@@ -300,17 +300,14 @@ def test(args, seg_model, test_loader, prompt_maker):
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            det_prompts_feat = prompt_maker(ori_det_patch_tokens)
-            seg_prompts_feat = prompt_maker(ori_seg_patch_tokens)
+            prompts_feat = prompt_maker(ori_det_patch_tokens)
 
             # image
             anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (
-                    100.0 * patch_tokens[layer] @ det_prompts_feat
-                ).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompts_feat).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
             image_scores.append(anomaly_score.cpu())
@@ -320,9 +317,7 @@ def test(args, seg_model, test_loader, prompt_maker):
             anomaly_maps = []
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (
-                    100.0 * patch_tokens[layer] @ seg_prompts_feat
-                ).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompts_feat).unsqueeze(0)
                 B, L, C = anomaly_map.shape
                 H = int(np.sqrt(L))
                 anomaly_map = F.interpolate(
