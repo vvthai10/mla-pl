@@ -2,8 +2,10 @@ import os
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageFile
 import random
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 CLASS_NAMES = [
     "Bone",
@@ -13,7 +15,8 @@ CLASS_NAMES = [
     "Retina_OCT2017",
     "Chest",
     "Histopathology",
-]  #
+] 
+
 CLASS_INDEX = {
     "Bone": 4,
     "Brain": 3,

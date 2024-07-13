@@ -16,6 +16,8 @@ from prompt import REAL_NAME
 
 import warnings
 
+from visualization import visualizer
+
 warnings.filterwarnings("ignore")
 
 use_cuda = torch.cuda.is_available()
@@ -76,6 +78,10 @@ def main():
         help="features used",
     )
     parser.add_argument("--seed", type=int, default=111)
+
+    parser.add_argument("--ckpt_path", type=str, default=None)
+    parser.add_argument("--visualize_path", type=str, default=None)
+    
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -101,20 +107,12 @@ def main():
     ).to(device)
     prompt_maker.eval()
 
-    # checkpoint = torch.load(os.path.join(f"{args.save_path}", f"{args.obj}.pth"))
-    checkpoint = torch.load(
-        os.path.join(f"{args.save_path}", f"learnable_prompts_v1_{args.obj}.pth")
+    checkpoint = torch.load(args.ckpt_path)
+    model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
+    model.det_adapters.load_state_dict(checkpoint["state_dict"]["det_adapters"])
+    prompt_maker.prompt_learner.load_state_dict(
+        checkpoint["state_dict"]["prompt_learner"]
     )
-    model.seg_adapters.load_state_dict(checkpoint["seg_adapters"])
-    model.det_adapters.load_state_dict(checkpoint["det_adapters"])
-    prompt_maker.prompt_learner.load_state_dict(checkpoint["prompt_learner"])
-    # optimizer for only adapters
-    # seg_optimizer = torch.optim.Adam(
-    #     list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
-    # )
-    # det_optimizer = torch.optim.Adam(
-    #     list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999)
-    # )
 
     # load dataset and loader
     kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
@@ -153,7 +151,7 @@ def test(args, seg_model, test_loader, prompt_maker):
     image_scores = []
     segment_scores = []
 
-    for image, y, mask in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
@@ -162,17 +160,14 @@ def test(args, seg_model, test_loader, prompt_maker):
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            det_prompts_feat = prompt_maker(ori_det_patch_tokens)
-            seg_prompts_feat = prompt_maker(ori_seg_patch_tokens)
+            prompts_feat = prompt_maker(ori_det_patch_tokens)
 
             # image
             anomaly_score = 0
             patch_tokens = ori_det_patch_tokens.copy()
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (
-                    100.0 * patch_tokens[layer] @ det_prompts_feat
-                ).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompts_feat).unsqueeze(0)
                 anomaly_map = torch.softmax(anomaly_map, dim=-1)[:, :, 1]
                 anomaly_score += anomaly_map.mean()
             image_scores.append(anomaly_score.cpu())
@@ -182,9 +177,7 @@ def test(args, seg_model, test_loader, prompt_maker):
             anomaly_maps = []
             for layer in range(len(patch_tokens)):
                 patch_tokens[layer] /= patch_tokens[layer].norm(dim=-1, keepdim=True)
-                anomaly_map = (
-                    100.0 * patch_tokens[layer] @ seg_prompts_feat
-                ).unsqueeze(0)
+                anomaly_map = (100.0 * patch_tokens[layer] @ prompts_feat).unsqueeze(0)
                 B, L, C = anomaly_map.shape
                 H = int(np.sqrt(L))
                 anomaly_map = F.interpolate(
@@ -196,6 +189,9 @@ def test(args, seg_model, test_loader, prompt_maker):
                 anomaly_map = torch.softmax(anomaly_map, dim=1)[:, 1, :, :]
                 anomaly_maps.append(anomaly_map.cpu().numpy())
             final_score_map = np.sum(anomaly_maps, axis=0)
+
+            if CLASS_INDEX[args.obj] > 0:
+                visualizer(pathes, final_score_map, args.visualize_path)
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())

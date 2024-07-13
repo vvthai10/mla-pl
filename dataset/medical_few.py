@@ -2,10 +2,12 @@ import os
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageFile
 import random
 import pandas as pd
 import numpy as np
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 CLASS_NAMES = [
     "Bone",
