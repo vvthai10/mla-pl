@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 
 CLASS_NAMES = [
+    "Bone",
     "Brain",
     "Liver",
     "Retina_RESC",
@@ -16,6 +17,7 @@ CLASS_NAMES = [
     "Histopathology",
 ]
 CLASS_INDEX = {
+    "Bone": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -129,7 +131,7 @@ class MedDataset(Dataset):
                         break
 
         for f in random_choice:
-            if f.endswith(".png") or f.endswith(".jpeg"):
+            if f.endswith(".png") or f.endswith(".jpeg") or f.endswith(".jpg"):
                 x.append(os.path.join(img_dir, f))
 
         fewshot_img = []
@@ -167,7 +169,7 @@ class MedDataset(Dataset):
                         break
 
         for f in random_choice:
-            if f.endswith(".png") or f.endswith(".jpeg"):
+            if f.endswith(".png") or f.endswith(".jpeg") or f.endswith(".jpg"):
                 x.append(os.path.join(img_dir, f))
                 y.append(os.path.join(mask_dir, f))
 
