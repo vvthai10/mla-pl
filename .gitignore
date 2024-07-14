@@ -169,3 +169,6 @@ ckpt_ori/
 data/
 results/
 CLIP/ckpt
+ckpt/
+img/
+output_image.png
