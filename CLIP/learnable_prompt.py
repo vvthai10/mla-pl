@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from open_clip.tokenizer import SimpleTokenizer, tokenize
+from open_clip_custom.tokenizer import SimpleTokenizer, tokenize
 import torch.nn.functional as F
 
 prompts = {
@@ -37,10 +37,10 @@ class TextEncoder(nn.Module):
 
         super().__init__()
 
-        self.transformer = clip_model.transformer
-        self.positional_embedding = clip_model.positional_embedding
-        self.ln_final = clip_model.ln_final
-        self.text_projection = clip_model.text_projection
+        self.transformer = clip_model.transformer # 0x12
+        self.positional_embedding = clip_model.positional_embedding # 77,768
+        self.ln_final = clip_model.ln_final # Layer Norm768
+        self.text_projection = clip_model.text_projection # 768,768
 
     def forward(self, prompts, tokenized_prompts):
 
