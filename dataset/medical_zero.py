@@ -8,17 +8,17 @@ import random
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 CLASS_NAMES = [
-    "Bone",
+    # "Bone",
     "Brain",
     "Liver",
     "Retina_RESC",
     "Retina_OCT2017",
     "Chest",
     "Histopathology",
-] 
+]
 
 CLASS_INDEX = {
-    "Bone": 4,
+    # "Bone": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -254,12 +254,12 @@ class MedTestDataset(Dataset):
         )
 
     def __getitem__(self, idx):
-        x, y, mask = self.x[idx], self.y[idx], self.mask[idx]
+        x, y, mask, pathes = self.x[idx], self.y[idx], self.mask[idx], self.x[idx]
         x = Image.open(x).convert("RGB")
         x_img = self.transform_x(x)
 
         if self.seg_flag < 0:
-            return x_img, y, torch.zeros([1, self.resize, self.resize])
+            return x_img, y, torch.zeros([1, self.resize, self.resize]), pathes
 
         if mask is None:
             mask = torch.zeros([1, self.resize, self.resize])
@@ -268,7 +268,7 @@ class MedTestDataset(Dataset):
             mask = Image.open(mask).convert("L")
             mask = self.transform_mask(mask)
             y = 1
-        return x_img, y, mask
+        return x_img, y, mask, pathes
 
     def __len__(self):
         return len(self.x)

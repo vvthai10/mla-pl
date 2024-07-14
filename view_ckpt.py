@@ -1,6 +1,6 @@
 import torch 
 
-path = "/home/phu/workspace/thesis/sources/mvfa-ad/ckpts/few-shot/4-shot/test/Liver.pth"
+path = "D:/workspace/thesis/sources/mvfa-ad/ckpts/zero-shot/v3/Brain.pth"
 checkpoint = torch.load(path)
 print(checkpoint["AUC"])
 print(checkpoint["pAUC"])
