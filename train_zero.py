@@ -293,7 +293,7 @@ def test(args, seg_model, test_loader, prompt_maker):
     image_scores = []
     segment_scores = []
 
-    for image, y, mask in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 

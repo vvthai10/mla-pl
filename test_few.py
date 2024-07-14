@@ -117,10 +117,6 @@ def main():
     for name, param in model.named_parameters():
         param.requires_grad = True
 
-    # optimizer for only adapters
-    # seg_optimizer = torch.optim.Adam(list(model.seg_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
-    # det_optimizer = torch.optim.Adam(list(model.det_adapters.parameters()), lr=args.learning_rate, betas=(0.5, 0.999))
-
     # load test dataset
     kwargs = {"num_workers": 16, "pin_memory": True} if use_cuda else {}
     test_dataset = MedDataset(
@@ -136,40 +132,11 @@ def main():
     )
     augment_normal_img, augment_normal_mask = augment(test_dataset.fewshot_norm_img)
 
-    # augment_fewshot_img = torch.cat([augment_abnorm_img, augment_normal_img], dim=0)
-    # augment_fewshot_mask = torch.cat([augment_abnorm_mask, augment_normal_mask], dim=0)
-
-    # augment_fewshot_label = torch.cat(
-    #     [
-    #         torch.Tensor([1] * len(augment_abnorm_img)),
-    #         torch.Tensor([0] * len(augment_normal_img)),
-    #     ],
-    #     dim=0,
-    # )
-
-    # train_dataset = torch.utils.data.TensorDataset(
-    #     augment_fewshot_img, augment_fewshot_mask, augment_fewshot_label
-    # )
-    # train_loader = torch.utils.data.DataLoader(
-    #     train_dataset, batch_size=1, shuffle=True, **kwargs
-    # )
-
     # memory bank construction
     support_dataset = torch.utils.data.TensorDataset(augment_normal_img)
     support_loader = torch.utils.data.DataLoader(
         support_dataset, batch_size=1, shuffle=True, **kwargs
     )
-
-    # losses
-    # loss_focal = FocalLoss()
-    # loss_dice = BinaryDiceLoss()
-    # loss_bce = torch.nn.BCEWithLogitsLoss()
-
-    # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     text_features = encode_text_with_prompt_ensemble(
-    #         clip_model, REAL_NAME[args.obj], device
-    #     )
 
     best_result = 0
 

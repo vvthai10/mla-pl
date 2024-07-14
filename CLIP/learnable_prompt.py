@@ -44,6 +44,9 @@ class TextEncoder(nn.Module):
 
     def forward(self, prompts, tokenized_prompts):
 
+        print("prompts shape: ", prompts.shape)
+        print("positional_embedding shapes: ", self.positional_embedding.shape)
+        
         x = prompts + self.positional_embedding
         x = x.permute(1, 0, 2)  # NLD -> LND
         x, _, _ = self.transformer(x)

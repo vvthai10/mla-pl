@@ -43,22 +43,27 @@ class TextEncoder(nn.Module):
 
         self.text_encoder = biomedclip.text
 
-        # self.transformer = biomedclip.text.transformer # 0x12
-        # self.positional_embedding = biomedclip.text.transformer.embeddings.position_embeddings # 77,768
-        # self.ln_final = biomedclip.text.transformer.embeddings.LayerNorm # Layer Norm768
-        # self.text_projection = biomedclip.text_projection # 768,768
+        self.transformer = self.text_encoder.transformer  # 0x12
+        self.positional_embedding = (
+            self.text_encoder.transformer.embeddings.position_embeddings.weight
+        )  # 77,768
+        self.ln_final = (
+            self.text_encoder.transformer.embeddings.LayerNorm
+        )  # Layer Norm768
+        self.text_projection = biomedclip.text.proj
 
     def forward(self, prompts, tokenized_prompts):
-
-        # x = prompts + self.positional_embedding
-        # x = x.permute(1, 0, 2)  # NLD -> LND
-        # x, _, _ = self.transformer(x)
-        # x = x.permute(1, 0, 2)  # LND -> NLD
-        # x = self.ln_final(x)
-        # x = (
-        #     x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)]
-        #     @ self.text_projection
-        # )
+        print("prompts shape: ", prompts.shape)
+        print("positional_embedding shapes: ", self.positional_embedding.shape)
+        x = prompts + self.positional_embedding
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x, _, _ = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+        x = self.ln_final(x)
+        x = (
+            x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)]
+            @ self.text_projection
+        )
         return x
 
 
@@ -74,7 +79,8 @@ class PromptLearner(nn.Module):
 
         super().__init__()
 
-        ctx_dim = 512
+        # ctx_dim = clip_model.ln_final.weight.shape[0]  #
+        ctx_dim = 77  
 
         self.ctx = {}
 
@@ -261,4 +267,3 @@ class PromptMaker(nn.Module):
             text_features.append(class_embedding)
         text_features = torch.stack(text_features, dim=1)
         return text_features
-

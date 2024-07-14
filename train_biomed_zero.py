@@ -7,12 +7,16 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
-from learner.visual_learner import CLIP_Inplanted
-from learner.prompt_learner import PromptMaker
+from biomedclip.learner.visual_learner import CLIP_Inplanted
+from biomedclip.learner.prompt_learner import PromptMaker
 from loss import FocalLoss, BinaryDiceLoss
 from pathlib import Path
 import warnings
-from learner.config import biomedclip_hf_api
+from biomedclip.learner.config import biomedclip_hf_api
+from open_clip import (
+    create_model_from_pretrained,
+    get_tokenizer,
+)  # works on open-clip-torch>=2.23.0, timm>=0.9.8
 
 warnings.filterwarnings("ignore")
 
@@ -27,6 +31,7 @@ CLASS_INDEX = {
     "Chest": -2,
     "Histopathology": -3,
 }  #
+
 CLASS_INDEX_INV = {
     3: "Brain",
     2: "Liver",
@@ -52,9 +57,11 @@ def main():
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--ckpt_path", type=str, default="./ckpt/")
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--img_size", type=int, default=240)
+    parser.add_argument("--img_size", type=int, default=224)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
-    parser.add_argument("--learning_rate", type=float, default=1e-4, help="learning rate")
+    parser.add_argument(
+        "--learning_rate", type=float, default=1e-4, help="learning rate"
+    )
     parser.add_argument(
         "--features_list",
         type=int,
@@ -69,14 +76,21 @@ def main():
     setup_seed(args.seed)
 
     # fixed feature extractor
-    biomedclip = open_clip.create_model(biomedclip_hf_api).to(device)
+    biomedclip, preprocess = create_model_from_pretrained(
+        "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+    )
+    biomedclip = biomedclip.cuda()
     biomedclip.device = device
     biomedclip.eval()
 
-    model = CLIP_Inplanted(biomedclip=biomedclip, features=args.features_list).to(device)
+    model = CLIP_Inplanted(biomedclip=biomedclip, features=args.features_list).to(
+        device
+    )
     model.eval()
 
-    prompt_maker = PromptMaker(biomedclip=biomedclip, n_ctx=8, CSC=True, class_token_position=["end"]).to(device)
+    prompt_maker = PromptMaker(
+        biomedclip=biomedclip, n_ctx=8, CSC=True, class_token_position=["end"]
+    ).to(device)
     prompt_maker.train()
 
     continue_epoch = 0
@@ -195,7 +209,7 @@ def main():
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
-                prompts_feat = prompt_maker(det_patch_tokens)
+                prompts_feat = prompt_maker()
 
                 # image level
                 det_loss = 0
@@ -270,7 +284,7 @@ def test(args, seg_model, test_loader, prompt_maker):
     image_scores = []
     segment_scores = []
 
-    for image, y, mask in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
@@ -279,7 +293,7 @@ def test(args, seg_model, test_loader, prompt_maker):
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            prompts_feat = prompt_maker(ori_det_patch_tokens)
+            prompts_feat = prompt_maker()
 
             # image
             anomaly_score = 0
