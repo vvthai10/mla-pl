@@ -1,1 +1,0 @@
-biomedclip_hf_api = "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"

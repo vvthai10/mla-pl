@@ -110,12 +110,12 @@ dfs = [
     create_results_df("BGAD", bgad_results),
     create_results_df("April-GAN", april_gan_results),
     create_results_df("MVFA-AD", mvfa_ad_results),
-    create_results_df("Mô hình đề xuất", my_model_results),
+    create_results_df("Ours", my_model_results),
 ]
 results_df = pd.concat(dfs, ignore_index=True)
 
 # Create directory to save images
-output_dir = "results_plots"
+output_dir = "results_plots/paper"
 os.makedirs(output_dir, exist_ok=True)
 
 # Define markers and colors for each model
@@ -148,7 +148,7 @@ model_styles = {
         "line_style_det": "solid",
         "line_style_seg": "dashed",
     },
-    "Mô hình đề xuất": {
+    "Ours": {
         "color": "orange",
         "marker_det": "^",
         "marker_seg": "*",
@@ -159,12 +159,10 @@ model_styles = {
 
 
 # Plot results and save images
-
-
 def plot_results(results_df, dataset):
     plt.figure(figsize=(6, 6))
     x_positions = np.arange(len(shots))
-    task_name = {"det": "Phân loại", "seg": "Phân đoạn"}
+    task_name = {"det": "AD", "seg": "AS"}
     for task in ["det", "seg"]:
         subset = results_df[
             (results_df["Dataset"] == dataset) & (results_df["Task"] == task)
@@ -183,7 +181,7 @@ def plot_results(results_df, dataset):
                 label=f"{model} ({task_name[task]})",
             )
     # plt.title(f"{dataset}")
-    plt.xlabel("Số mẫu")
+    plt.xlabel("Shots")
     plt.ylabel("AUC (%)")
     plt.ylim(50, 100)
     plt.xticks(x_positions, ["2", "4", "8", "16"])
