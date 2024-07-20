@@ -77,8 +77,14 @@ class CLIP_Inplanted(nn.Module):
         H = int(math.sqrt(L-1))
         out_attn = torch.zeros([H, H]).to('cuda')
 
-        for i in range(len(attn)):
-            out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
+        # out_attn = torch.zeros([H, H]).to('cuda')
+        out_attn = []
+        for i in range(len(attn_out)):
+            layer_out_attn = []
+            for b in range(B):
+                layer_out_attn.append(attn_out[i][b, 0, 1:].view(H, H).unsqueeze(0))
+            out_attn.append(torch.cat(layer_out_attn))
+            # out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
         x = x.permute(1, 0, 2)
 
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]

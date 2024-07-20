@@ -163,5 +163,13 @@ cython_debug/
 
 
 # Owner Folders
-ckpt/
+ckpt-mvfa/
+ckpts/
+ckpt_ori/
 data/
+results/
+CLIP/ckpt
+ckpt/
+img/
+visualize/
+output_image.png
