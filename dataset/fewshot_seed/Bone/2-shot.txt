@@ -1,2 +1,2 @@
-a-0: 01471_60.png 00124_80.png
-n-0: 01368_60.png 00303_99.png
+a-0: image109587569.jpg image761816002.jpg 
+n-0: image0001005.jpg image0000918.jpg 

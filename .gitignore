@@ -172,4 +172,4 @@ CLIP/ckpt
 ckpt/
 img/
 visualize/
-output_image.png
+reports/
