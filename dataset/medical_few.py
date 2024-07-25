@@ -19,7 +19,7 @@ CLASS_NAMES = [
     "Histopathology",
 ]
 CLASS_INDEX = {
-    "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,

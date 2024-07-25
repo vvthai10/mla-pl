@@ -8,7 +8,7 @@ import random
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 CLASS_NAMES = [
-    # "Bone",
+    "Bone_v2",
     "Brain",
     "Liver",
     "Retina_RESC",
@@ -18,7 +18,7 @@ CLASS_NAMES = [
 ]
 
 CLASS_INDEX = {
-    # "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,

@@ -20,7 +20,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
 CLASS_INDEX = {
-    "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -29,7 +29,7 @@ CLASS_INDEX = {
     "Histopathology": -3,
 }  #
 CLASS_INDEX_INV = {
-    4: "Bone",
+    4: "Bone_v2",
     3: "Brain",
     2: "Liver",
     1: "Retina_RESC",

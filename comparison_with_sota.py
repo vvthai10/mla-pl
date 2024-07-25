@@ -21,7 +21,7 @@ dra_results = {
 bgad_results = {
     # Det
     "HIS_det": [
-        None,
+        None, 
         None,
         None,
         None,
