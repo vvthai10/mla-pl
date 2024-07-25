@@ -24,7 +24,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
 CLASS_INDEX = {
-    "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -33,7 +33,7 @@ CLASS_INDEX = {
     "Histopathology": -3,
 }
 CLASS_INDEX_INV = {
-    4: "Bone",
+    4: "Bone_v2",
     3: "Brain",
     2: "Liver",
     1: "Retina_RESC",
@@ -193,7 +193,13 @@ def test(args, seg_model, test_loader, prompt_maker):
             final_score_map = np.sum(anomaly_maps, axis=0)
 
             if CLASS_INDEX[args.obj] > 0:
-                visualizer(pathes, final_score_map, args.visualize_path)
+                # visualizer(pathes, final_score_map, args.visualize_path)
+                visualizer(
+                    pathes,
+                    final_score_map,
+                    args.visualize_path,
+                    mask="bone" in args.obj.lower(),
+                )
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
             gt_list.extend(y.cpu().detach().numpy())

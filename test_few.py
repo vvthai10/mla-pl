@@ -1,23 +1,25 @@
-import os
 import argparse
-import random
 import math
+import os
+import random
+
 import numpy as np
 import torch
+from PIL import Image
+from scipy.ndimage import gaussian_filter
+from sklearn.metrics import pairwise, precision_recall_curve, roc_auc_score
 from torch import nn
 from torch.nn import functional as F
 from tqdm import tqdm
-from scipy.ndimage import gaussian_filter
-from CLIP.learnable_prompt import PromptMaker
-from dataset.medical_few import MedDataset
-from CLIP.clip import create_model
-from CLIP.tokenizer import tokenize
+
 from CLIP.adapter import CLIP_Inplanted
-from PIL import Image
-from sklearn.metrics import roc_auc_score, precision_recall_curve, pairwise
-from loss import FocalLoss, BinaryDiceLoss
-from utils import augment, cos_sim, encode_text_with_prompt_ensemble
+from CLIP.clip import create_model
+from CLIP.learnable_prompt import PromptMaker
+from CLIP.tokenizer import tokenize
+from dataset.medical_few import MedDataset
+from loss import BinaryDiceLoss, FocalLoss
 from prompt import REAL_NAME
+from utils import augment, cos_sim, encode_text_with_prompt_ensemble
 from visualization import visualizer
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -30,7 +32,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
 CLASS_INDEX = {
-    "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -107,7 +109,7 @@ def main():
         clip_model=clip_model, n_ctx=8, CSC=True, class_token_position=["end"]
     ).to(device)
     prompt_maker.eval()
-    
+
     checkpoint = torch.load(args.ckpt_path)
     model.seg_adapters.load_state_dict(checkpoint["state_dict"]["seg_adapters"])
     model.det_adapters.load_state_dict(checkpoint["state_dict"]["det_adapters"])
@@ -224,7 +226,12 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                     anomaly_maps.append(anomaly_map.cpu().numpy())
 
                 score_map_zero = np.sum(anomaly_maps, axis=0)
-                visualizer(pathes, score_map_zero, args.visualize_path)
+                visualizer(
+                    pathes,
+                    score_map_zero,
+                    args.visualize_path,
+                    mask="bone" in args.obj.lower(),
+                )
                 seg_score_map_zero.append(score_map_zero)
 
             else:

@@ -98,8 +98,7 @@ def main():
         clip_model=clip_model, n_ctx=8, CSC=True, class_token_position=["end"]
     ).to(device)
     prompt_maker.train()
-
-    # map_maker = MapMaker(image_size=args.config.image_size).to(device)
+    
     continue_epoch = 0
     best_result = 0
 
@@ -185,13 +184,6 @@ def main():
     loss_focal = FocalLoss()
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
-
-    # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     text_features = encode_text_with_prompt_ensemble(
-    #         clip_model, REAL_NAME[args.obj], device
-    #     )
-    # print("Original text features: ", text_features.shape)
 
     for epoch in range(continue_epoch, args.epoch):
         print("epoch ", epoch, ":")
