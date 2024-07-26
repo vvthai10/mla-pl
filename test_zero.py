@@ -198,7 +198,7 @@ def test(args, seg_model, test_loader, prompt_maker):
                     pathes,
                     final_score_map,
                     args.visualize_path,
-                    mask="bone" in args.obj.lower(),
+                    masked="bone" in args.obj.lower(),
                 )
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())

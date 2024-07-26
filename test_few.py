@@ -230,7 +230,7 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                     pathes,
                     score_map_zero,
                     args.visualize_path,
-                    mask="bone" in args.obj.lower(),
+                    masked="bone" in args.obj.lower(),
                 )
                 seg_score_map_zero.append(score_map_zero)
 

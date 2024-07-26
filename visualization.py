@@ -4,7 +4,7 @@ from utils import normalize
 import numpy as np
 
 
-def visualizer(pathes, anomaly_map, save_path, mask=False):
+def visualizer(pathes, anomaly_map, save_path, masked=False):
     for idx, path in enumerate(pathes):
 
         if "Ungood" not in path:
@@ -37,7 +37,7 @@ def visualizer(pathes, anomaly_map, save_path, mask=False):
 
         if not os.path.exists(save_vis):
             os.makedirs(save_vis)
-        if mask:
+        if masked:
             cv2.imwrite(
                 os.path.join(save_vis, name + "_map.jpg"),
                 mask_image(vis),
