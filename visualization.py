@@ -110,7 +110,8 @@ def mask_image(image, mask_fraction=7.8):
     mask[:mask_height, :] = 0
     mask[-mask_height:, :] = 0
 
-    # Apply the mask
-    masked_image = cv2.bitwise_and(image, mask)
+    # Apply the mask directly
+    masked_image = image.copy()
+    masked_image[mask == 0] = 0
 
     return masked_image
