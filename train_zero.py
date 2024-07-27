@@ -9,7 +9,7 @@ from sklearn.metrics import roc_auc_score
 from CLIP.learnable_prompt import PromptMaker
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.adapter import CLIP_Inplanted
+from CLIP.multi_level_adapter import MultiLevelAdapters
 from loss import FocalLoss, BinaryDiceLoss
 from pathlib import Path
 import warnings
@@ -91,7 +91,7 @@ def main():
     )
     clip_model.eval()
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(
+    model = MultiLevelAdapters(clip_model=clip_model, features=args.features_list).to(
         device
     )
     model.eval()
@@ -208,13 +208,13 @@ def main():
             print("\n")
 
         loss_list = []
-        for image, image_label, mask, seg_idx in tqdm(train_loader):
+        for image, image_label, mask, seg_idx in tqdm(train_loader, position=0, leave=True):
 
             image = image.squeeze(0).to(device)
             seg_idx = seg_idx.item()
 
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
+                seg_patch_tokens, det_patch_tokens = model(image)
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
@@ -293,16 +293,16 @@ def test(args, seg_model, test_loader, prompt_maker):
     image_scores = []
     segment_scores = []
 
-    for image, y, mask, pathes in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
+            ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            prompts_feat = prompt_maker(ori_det_patch_tokens)
+            prompts_feat = prompt_maker()
 
             # image
             anomaly_score = 0

@@ -12,7 +12,7 @@ from CLIP.learnable_prompt import PromptMaker
 from dataset.medical_few import MedDataset
 from CLIP.clip import create_model
 from CLIP.tokenizer import tokenize
-from CLIP.adapter import CLIP_Inplanted
+from CLIP.multi_level_adapter import MultiLevelAdapters
 from PIL import Image
 from sklearn.metrics import roc_auc_score, precision_recall_curve, pairwise
 from loss import FocalLoss, BinaryDiceLoss
@@ -63,13 +63,7 @@ def main():
     parser.add_argument("--obj", type=str, default="Liver")
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--save_model", type=int, default=1)
-    parser.add_argument("--save_path", type=str, default="./ckpt/few-shot/")
     parser.add_argument("--img_size", type=int, default=240)
-    parser.add_argument("--epoch", type=int, default=50, help="epochs")
-    parser.add_argument(
-        "--learning_rate", type=float, default=0.001, help="learning rate"
-    )
     parser.add_argument(
         "--features_list",
         type=int,
@@ -80,8 +74,8 @@ def main():
     parser.add_argument("--seed", type=int, default=111)
     parser.add_argument("--shot", type=int, default=4)
     parser.add_argument("--iterate", type=int, default=0)
-    parser.add_argument("--ckpt_path", type=str, default=None)
-    parser.add_argument("--visualize_path", type=str, default=None)
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt")
+    parser.add_argument("--visualize_path", type=str, default="./visualize")
 
     args = parser.parse_args()
 
@@ -97,7 +91,7 @@ def main():
     )
     clip_model.eval()
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(
+    model = MultiLevelAdapters(clip_model=clip_model, features=args.features_list).to(
         device
     )
     model.eval()
@@ -127,9 +121,6 @@ def main():
     )
 
     # few-shot image augmentation
-    augment_abnorm_img, augment_abnorm_mask = augment(
-        test_dataset.fewshot_abnorm_img, test_dataset.fewshot_abnorm_mask
-    )
     augment_normal_img, augment_normal_mask = augment(test_dataset.fewshot_norm_img)
 
     # memory bank construction
@@ -138,14 +129,12 @@ def main():
         support_dataset, batch_size=1, shuffle=True, **kwargs
     )
 
-    best_result = 0
-
     seg_features = []
     det_features = []
     for image in support_loader:
         image = image[0].to(device)
         with torch.no_grad():
-            _, seg_patch_tokens, det_patch_tokens = model(image)
+            seg_patch_tokens, det_patch_tokens = model(image)
             seg_patch_tokens = [p[0].contiguous() for p in seg_patch_tokens]
             det_patch_tokens = [p[0].contiguous() for p in det_patch_tokens]
             seg_features.append(seg_patch_tokens)
@@ -159,9 +148,7 @@ def main():
         for i in range(len(det_features[0]))
     ]
 
-    result = test(
-        args, model, test_loader, prompt_maker, seg_mem_features, det_mem_features
-    )
+    test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_features)
 
 
 def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_features):
@@ -174,12 +161,12 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
     seg_score_map_zero = []
     seg_score_map_few = []
 
-    for image, y, mask, pathes in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, seg_patch_tokens, det_patch_tokens = model(image)
+            seg_patch_tokens, det_patch_tokens = model(image)
             seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
             det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
             prompts_feat = prompt_maker(det_patch_tokens)

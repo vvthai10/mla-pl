@@ -240,7 +240,7 @@ class PromptMaker(nn.Module):
         self.class_token_position = class_token_position
         self.text_encoder = TextEncoder(clip_model)
 
-    def forward(self, image_features):
+    def forward(self):
         prompts = self.prompt_learner()
         tokenized_prompts = self.tokenized_prompts
         text_features = []

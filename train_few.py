@@ -6,7 +6,7 @@ import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 from dataset.medical_few import MedDataset
-from CLIP import create_model, PromptMaker, CLIP_Inplanted
+from CLIP import create_model, PromptMaker, MultiLevelAdapters
 from sklearn.metrics import roc_auc_score
 from loss import FocalLoss, BinaryDiceLoss
 from utils import augment, cos_sim
@@ -55,9 +55,8 @@ def main():
     )
     parser.add_argument("--obj", type=str, default="Liver")
     parser.add_argument("--data_path", type=str, default="./data/")
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/few-shot/")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--save_model", type=int, default=1)
-    parser.add_argument("--save_path", type=str, default="./ckpt/few-shot/")
     parser.add_argument("--img_size", type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
     parser.add_argument(
@@ -71,9 +70,9 @@ def main():
         help="features used",
     )
     parser.add_argument("--seed", type=int, default=111)
+    parser.add_argument("--continue_path", type=str, default=None, help="continue")
     parser.add_argument("--shot", type=int, default=4)
     parser.add_argument("--iterate", type=int, default=0)
-    parser.add_argument("--continue_path", type=str, default=None, help="continue")
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -88,7 +87,7 @@ def main():
     )
     clip_model.eval()
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(
+    model = MultiLevelAdapters(clip_model=clip_model, features=args.features_list).to(
         device
     )
     model.eval()
@@ -186,13 +185,6 @@ def main():
     loss_dice = BinaryDiceLoss()
     loss_bce = torch.nn.BCEWithLogitsLoss()
 
-    # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     text_features = encode_text_with_prompt_ensemble(
-    #         clip_model, REAL_NAME[args.obj], device
-    #     )
-    # print("Original text features: ", text_features.shape)
-
     for epoch in range(continue_epoch, args.epoch):
         print("epoch ", epoch, ":")
 
@@ -200,12 +192,12 @@ def main():
         for image, gt, label in train_loader:
             image = image.to(device)
             with torch.cuda.amp.autocast():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
+                seg_patch_tokens, det_patch_tokens = model(image)
 
                 seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
 
-                prompts_feat = prompt_maker(det_patch_tokens)
+                prompts_feat = prompt_maker()
 
                 # det loss
                 det_loss = 0
@@ -248,7 +240,6 @@ def main():
                         seg_loss += loss_dice(anomaly_map[:, 1, :, :], mask)
 
                     loss = seg_loss + det_loss
-                    # loss = 2 * seg_loss * det_loss / (seg_loss + det_loss)
                     loss.requires_grad_(True)
                     seg_optimizer.zero_grad()
                     det_optimizer.zero_grad()
@@ -276,7 +267,7 @@ def main():
         for image in support_loader:
             image = image[0].to(device)
             with torch.no_grad():
-                _, seg_patch_tokens, det_patch_tokens = model(image)
+                seg_patch_tokens, det_patch_tokens = model(image)
                 seg_patch_tokens = [p[0].contiguous() for p in seg_patch_tokens]
                 det_patch_tokens = [p[0].contiguous() for p in det_patch_tokens]
                 seg_features.append(seg_patch_tokens)
@@ -299,9 +290,27 @@ def main():
             det_mem_features,
         )
 
-        if args.save_model == 1:
+        ckp_path = os.path.join(args.ckpt_path, f"{args.obj}_lastest.pth")
+        os.makedirs(Path(ckp_path).parent, exist_ok=True)
+        torch.save(
+            {
+                "state_dict": {
+                    "seg_adapters": model.seg_adapters.state_dict(),
+                    "det_adapters": model.det_adapters.state_dict(),
+                    "prompt_learner": prompt_maker.prompt_learner.state_dict(),
+                },
+                "AUC": result[1],
+                "pAUC": result[2],
+                "best": best_result,
+                "epoch": epoch,
+            },
+            ckp_path,
+        )
 
-            ckp_path = os.path.join(args.save_path, f"{args.obj}_lastest.pth")
+        if result[0] > best_result:
+            best_result = result[0]
+            print("Best result\n")
+            ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
             os.makedirs(Path(ckp_path).parent, exist_ok=True)
             torch.save(
                 {
@@ -317,26 +326,6 @@ def main():
                 },
                 ckp_path,
             )
-
-            if result[0] > best_result:
-                best_result = result[0]
-                print("Best result\n")
-                ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
-                os.makedirs(Path(ckp_path).parent, exist_ok=True)
-                torch.save(
-                    {
-                        "state_dict": {
-                            "seg_adapters": model.seg_adapters.state_dict(),
-                            "det_adapters": model.det_adapters.state_dict(),
-                            "prompt_learner": prompt_maker.prompt_learner.state_dict(),
-                        },
-                        "AUC": result[1],
-                        "pAUC": result[2],
-                        "best": best_result,
-                        "epoch": epoch,
-                    },
-                    ckp_path,
-                )
 
 
 def test(
@@ -356,7 +345,7 @@ def test(
     seg_score_map_zero = []
     seg_score_map_few = []
 
-    for image, y, mask, path in tqdm(test_loader):
+    for image, y, mask, path in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 

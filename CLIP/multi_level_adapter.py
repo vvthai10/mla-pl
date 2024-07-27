@@ -10,10 +10,9 @@ from PIL import Image
 
 
 
-# Residual CLIP Adapter
-class ClipAdapter(nn.Module):
+class Adapter(nn.Module):
     def __init__(self, c_in, bottleneck=768):
-        super(ClipAdapter, self).__init__()
+        super(Adapter, self).__init__()
         self.fc1 = nn.Sequential(
             nn.Linear(c_in, bottleneck, bias=False),
             nn.LeakyReLU(inplace=False)
@@ -29,14 +28,13 @@ class ClipAdapter(nn.Module):
         return x, y
 
         
-class CLIP_Inplanted(nn.Module):
+class MultiLevelAdapters(nn.Module):
     def __init__(self, clip_model, features):
         super().__init__()
-        self.clipmodel = clip_model
         self.image_encoder = clip_model.visual
         self.features = features
-        self.seg_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
-        self.det_adapters = nn.ModuleList( [ClipAdapter(1024, bottleneck=768) for i in range(len(features))] )
+        self.seg_adapters = nn.ModuleList( [Adapter(1024, bottleneck=768) for i in range(len(features))] )
+        self.det_adapters = nn.ModuleList( [Adapter(1024, bottleneck=768) for i in range(len(features))] )
 
 
     def forward(self, x):
@@ -54,16 +52,11 @@ class CLIP_Inplanted(nn.Module):
 
         x = x.permute(1, 0, 2)
 
-        attn_out = []
         seg_patch_tokens = []
         det_patch_tokens = []
 
         for i in range(24):
-            if i + 1 == 12:
-                x, attn = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
-                attn_out.append(attn)
-            else:
-                x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
+            x, attn_map = self.image_encoder.transformer.resblocks[i](x, attn_mask=None)
             if (i + 1) in self.features:
                 seg_adapt_med, seg_adapt_out = self.seg_adapters[self.features.index(i+1)](x)
                 det_adapt_med, det_adapt_out = self.det_adapters[self.features.index(i+1)](x)
@@ -73,30 +66,11 @@ class CLIP_Inplanted(nn.Module):
                 seg_patch_tokens.append(seg_adapt_med)
                 det_patch_tokens.append(det_adapt_med)
 
-        B, C, L = attn_out[0].shape
-        H = int(math.sqrt(L-1))
-        out_attn = torch.zeros([H, H]).to('cuda')
-
-        # out_attn = torch.zeros([H, H]).to('cuda')
-        out_attn = []
-        for i in range(len(attn_out)):
-            layer_out_attn = []
-            for b in range(B):
-                layer_out_attn.append(attn_out[i][b, 0, 1:].view(H, H).unsqueeze(0))
-            out_attn.append(torch.cat(layer_out_attn))
-            # out_attn = out_attn + attn_out[i][0, 0, 1:].view(H, H)
-        x = x.permute(1, 0, 2)
 
         seg_patch_tokens = [seg_patch_tokens[t].permute(1, 0, 2) for t in range(len(seg_patch_tokens))]
         det_patch_tokens = [det_patch_tokens[t].permute(1, 0, 2) for t in range(len(det_patch_tokens))]
 
-        pooled, tokens = self.image_encoder._global_pool(x)
-        pooled = self.image_encoder.ln_post(pooled)
-
-        if self.image_encoder.proj is not None:
-            pooled = pooled @ self.image_encoder.proj
-
-        return pooled, seg_patch_tokens, det_patch_tokens
+        return seg_patch_tokens, det_patch_tokens
 
 
 

@@ -9,7 +9,7 @@ from sklearn.metrics import roc_auc_score
 from CLIP.learnable_prompt import PromptMaker
 from dataset.medical_zero import MedTestDataset, MedTrainDataset
 from CLIP.clip import create_model
-from CLIP.adapter import CLIP_Inplanted
+from CLIP.multi_level_adapter import MultiLevelAdapters
 from loss import FocalLoss, BinaryDiceLoss
 from utils import encode_text_with_prompt_ensemble
 from prompt import REAL_NAME
@@ -67,11 +67,6 @@ def main():
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--img_size", type=int, default=240)
-    parser.add_argument("--save_path", type=str, default="./ckpt/zero-shot/")
-    parser.add_argument("--epoch", type=int, default=50, help="epochs")
-    parser.add_argument(
-        "--learning_rate", type=float, default=0.0001, help="learning rate"
-    )
     parser.add_argument(
         "--features_list",
         type=int,
@@ -80,8 +75,7 @@ def main():
         help="features used",
     )
     parser.add_argument("--seed", type=int, default=111)
-
-    parser.add_argument("--ckpt_path", type=str, default=None)
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/Liver.pth")
     parser.add_argument("--visualize_path", type=str, default=None)
 
     args = parser.parse_args()
@@ -98,7 +92,7 @@ def main():
     )
     clip_model.eval()
 
-    model = CLIP_Inplanted(clip_model=clip_model, features=args.features_list).to(
+    model = MultiLevelAdapters(clip_model=clip_model, features=args.features_list).to(
         device
     )
     model.eval()
@@ -118,33 +112,12 @@ def main():
 
     # load dataset and loader
     kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
-    # train_dataset = MedTrainDataset(
-    #     args.data_path, args.obj, args.img_size, args.batch_size
-    # )
-    # train_loader = torch.utils.data.DataLoader(
-    #     train_dataset, batch_size=1, shuffle=True, **kwargs
-    # )
-
     test_dataset = MedTestDataset(args.data_path, args.obj, args.img_size)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=1, shuffle=False, **kwargs
     )
 
-    # losses
-    # loss_focal = FocalLoss()
-    # loss_dice = BinaryDiceLoss()
-    # loss_bce = torch.nn.BCEWithLogitsLoss()
-
-    # text_feature_list = [0]
-    # text prompt
-    # with torch.cuda.amp.autocast(), torch.no_grad():
-    #     for i in [1, 2, 3, -3, -2, -1]:
-    #         text_feature = encode_text_with_prompt_ensemble(
-    #             clip_model, REAL_NAME[CLASS_INDEX_INV[i]], device
-    #         )
-    #         text_feature_list.append(text_feature)
-
-    score = test(args, model, test_loader, prompt_maker)
+    test(args, model, test_loader, prompt_maker)
 
 
 def test(args, seg_model, test_loader, prompt_maker):
@@ -153,16 +126,16 @@ def test(args, seg_model, test_loader, prompt_maker):
     image_scores = []
     segment_scores = []
 
-    for image, y, mask, pathes in tqdm(test_loader):
+    for image, y, mask, pathes in tqdm(test_loader, position=0, leave=True):
         image = image.to(device)
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
+            ori_seg_patch_tokens, ori_det_patch_tokens = seg_model(image)
             ori_seg_patch_tokens = [p[0, 1:, :] for p in ori_seg_patch_tokens]
             ori_det_patch_tokens = [p[0, 1:, :] for p in ori_det_patch_tokens]
 
-            prompts_feat = prompt_maker(ori_det_patch_tokens)
+            prompts_feat = prompt_maker()
 
             # image
             anomaly_score = 0
