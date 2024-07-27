@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 print(torch.__version__)
 
 CLASS_INDEX = {
-    "Bone": 4,
+    "Bone_v2": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
@@ -97,8 +97,7 @@ def main():
         clip_model=clip_model, n_ctx=8, CSC=True, class_token_position=["end"]
     ).to(device)
     prompt_maker.train()
-
-    # map_maker = MapMaker(image_size=args.config.image_size).to(device)
+    
     continue_epoch = 0
     best_result = 0
 
