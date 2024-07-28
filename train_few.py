@@ -309,7 +309,7 @@ def main():
         if result[0] > best_result:
             best_result = result[0]
             print("Best result\n")
-            ckp_path = os.path.join(args.save_path, f"{args.obj}.pth")
+            ckp_path = os.path.join(args.ckpt_path, f"{args.obj}.pth")
             os.makedirs(Path(ckp_path).parent, exist_ok=True)
             torch.save(
                 {
@@ -349,11 +349,11 @@ def test(
         mask[mask > 0.5], mask[mask <= 0.5] = 1, 0
 
         with torch.no_grad(), torch.cuda.amp.autocast():
-            _, seg_patch_tokens, det_patch_tokens = model(image)
+            seg_patch_tokens, det_patch_tokens = model(image)
             seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
             det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
 
-            prompts_feat = prompt_maker(det_patch_tokens)
+            prompts_feat = prompt_maker()
             if CLASS_INDEX[args.obj] > 0:
 
                 # few-shot, seg head

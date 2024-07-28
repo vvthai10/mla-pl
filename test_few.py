@@ -60,7 +60,7 @@ def main():
     parser.add_argument(
         "--pretrain", type=str, default="openai", help="laion400m, openai"
     )
-    parser.add_argument("--obj", type=str, default="Liver")
+    parser.add_argument("--obj", type=str, default="Brain")
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--img_size", type=int, default=240)
@@ -74,7 +74,7 @@ def main():
     parser.add_argument("--seed", type=int, default=111)
     parser.add_argument("--shot", type=int, default=4)
     parser.add_argument("--iterate", type=int, default=0)
-    parser.add_argument("--ckpt_path", type=str, default="./ckpt")
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/few-shot/Brain.pth")
     parser.add_argument("--visualize_path", type=str, default="./visualize")
 
     args = parser.parse_args()
@@ -169,7 +169,7 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
             seg_patch_tokens, det_patch_tokens = model(image)
             seg_patch_tokens = [p[0, 1:, :] for p in seg_patch_tokens]
             det_patch_tokens = [p[0, 1:, :] for p in det_patch_tokens]
-            prompts_feat = prompt_maker(det_patch_tokens)
+            prompts_feat = prompt_maker()
             if CLASS_INDEX[args.obj] > 0:
 
                 # few-shot, seg head

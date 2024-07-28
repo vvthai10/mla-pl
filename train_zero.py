@@ -61,7 +61,7 @@ def main():
     )
     parser.add_argument("--obj", type=str, default="Retina_RESC")
     parser.add_argument("--data_path", type=str, default="./data/")
-    parser.add_argument("--ckpt_path", type=str, default="./ckpt/")
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/zero-shot")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--img_size", type=int, default=240)
     parser.add_argument("--epoch", type=int, default=50, help="epochs")
@@ -218,7 +218,7 @@ def main():
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
 
-                prompts_feat = prompt_maker(det_patch_tokens)
+                prompts_feat = prompt_maker()
 
                 # image level
                 det_loss = 0

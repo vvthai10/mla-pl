@@ -63,7 +63,7 @@ def main():
     parser.add_argument(
         "--pretrain", type=str, default="openai", help="laion400m, openai"
     )
-    parser.add_argument("--obj", type=str, default="Retina_RESC")
+    parser.add_argument("--obj", type=str, default="Brain")
     parser.add_argument("--data_path", type=str, default="./data/")
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--img_size", type=int, default=240)
@@ -75,7 +75,7 @@ def main():
         help="features used",
     )
     parser.add_argument("--seed", type=int, default=111)
-    parser.add_argument("--ckpt_path", type=str, default="./ckpt/Liver.pth")
+    parser.add_argument("--ckpt_path", type=str, default="./ckpt/zero-shot/Brain.pth")
     parser.add_argument("--visualize_path", type=str, default=None)
 
     args = parser.parse_args()
