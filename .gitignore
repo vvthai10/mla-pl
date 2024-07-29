@@ -163,7 +163,7 @@ cython_debug/
 
 
 # Owner Folders
-ckpt-mvfa/
+ckpt-*/
 ckpts/
 ckpt_ori/
 data/

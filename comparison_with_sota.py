@@ -64,7 +64,7 @@ april_gan_results = {
 mvfa_ad_results = {
     # Det
     "HIS_det": [82.61, 82.71, 85.10, 82.62],
-    "chest_Xray_det": [81.32, 81.95, 883.89, 85.72],
+    "chest_Xray_det": [81.32, 81.95, 83.89, 85.72],
     "OCT_17_det": [97.98, 99.38, 99.64, 99.66],
     # Det & Seg
     "brain_MRI_det": [92.72, 92.44, 92.61, 94.40],
@@ -83,8 +83,8 @@ my_model_results = {
     # Det & Seg
     "brain_MRI_det": [92.73, 91.34, 91.9, 94.51],
     "brain_MRI_seg": [96.98, 97.10, 96.95, 97.91],
-    "liver_CT_det": [81.81, 84.50, 89.39, 92.75],
-    "liver_CT_seg": [98.02, 99.63, 99.65, 99.64],
+    "liver_CT_det": [81.18, 84.50, 89.39, 92.75],
+    "liver_CT_seg": [96.83, 99.63, 99.65, 99.64],
     "RESC_det": [92.17, 93.47, 97.14, 97.37],
     "RESC_seg": [97.63, 99.02, 98.92, 99.34],
 }
@@ -101,7 +101,7 @@ def create_results_df(model_name, results_dict):
         for shot, auc in zip(shots, auc_values):
             if auc is not None:
                 rows.append([model_name, dataset, task_type, shot, auc])
-    return pd.DataFrame(rows, columns=["Model", "Dataset", "Task", "Shots", "AUC"])
+    return pd.DataFrame(rows, columns=["Model", "Dataset", "Task", "Số mẫu", "AUC (%)"])
 
 
 # Combine all results into a single DataFrame
@@ -110,12 +110,12 @@ dfs = [
     create_results_df("BGAD", bgad_results),
     create_results_df("April-GAN", april_gan_results),
     create_results_df("MVFA-AD", mvfa_ad_results),
-    create_results_df("Ours", my_model_results),
+    create_results_df("DCBDH - MCCTH", my_model_results),  # Update name here
 ]
 results_df = pd.concat(dfs, ignore_index=True)
 
 # Create directory to save images
-output_dir = "results_plots/paper"
+output_dir = "results_plots"
 os.makedirs(output_dir, exist_ok=True)
 
 # Define markers and colors for each model
@@ -148,7 +148,7 @@ model_styles = {
         "line_style_det": "solid",
         "line_style_seg": "dashed",
     },
-    "Ours": {
+    "DCBDH - MCCTH": {  # Update name here
         "color": "orange",
         "marker_det": "^",
         "marker_seg": "*",
@@ -157,37 +157,58 @@ model_styles = {
     },
 }
 
-
+# 84.36 83.965
 # Plot results and save images
-def plot_results(results_df, dataset):
+def plot_results(results_df, dataset, y_range=None, include_legend=True):
     plt.figure(figsize=(6, 6))
     x_positions = np.arange(len(shots))
-    task_name = {"det": "AD", "seg": "AS"}
+    task_name = {"det": "PL", "seg": "PD"}
+    all_models = set()
+
     for task in ["det", "seg"]:
         subset = results_df[
             (results_df["Dataset"] == dataset) & (results_df["Task"] == task)
         ]
         for model in subset["Model"].unique():
+            all_models.add(model)
             model_data = subset[subset["Model"] == model]
             color = model_styles[model]["color"]
             marker = model_styles[model][f"marker_{task.lower()}"]
             line_style = model_styles[model][f"line_style_{task.lower()}"]
             plt.plot(
                 x_positions,
-                model_data["AUC"],
+                model_data["AUC (%)"],
                 linestyle=line_style,
                 marker=marker,
                 color=color,
                 label=f"{model} ({task_name[task]})",
             )
-    # plt.title(f"{dataset}")
-    plt.xlabel("Shots")
+
+    # Display a single legend for all models
+    if include_legend:
+        # Ensure all models are in the legend
+        for model in model_styles.keys():
+            if model not in all_models:
+                plt.plot(
+                    [],
+                    [],
+                    linestyle="-",
+                    marker="o",
+                    color=model_styles[model]["color"],
+                    label=model,
+                )
+        plt.legend(loc="best", fontsize="small")
+
+    plt.xlabel("Số mẫu")
     plt.ylabel("AUC (%)")
-    plt.ylim(50, 100)
+    if y_range:
+        plt.ylim(y_range)
+    else:
+        plt.ylim(50, 100)
     plt.xticks(x_positions, ["2", "4", "8", "16"])
-    plt.legend()
     plt.grid(True)
     plt.tight_layout()
+
     plt.savefig(os.path.join(output_dir, f"{dataset}_results.png"))
     plt.close()
 
@@ -195,9 +216,12 @@ def plot_results(results_df, dataset):
 # Plot results for relevant datasets
 datasets = ["brain_MRI", "liver_CT", "RESC"]
 for dataset in datasets:
-    plot_results(results_df, dataset)
+    plot_results(results_df, dataset, include_legend=True)
 
-# Plot individual classification results
+# Plot individual classification results with legend on OCT_17
 datasets_det_only = ["OCT_17", "chest_Xray", "HIS"]
 for dataset in datasets_det_only:
-    plot_results(results_df, dataset)
+    if dataset == "OCT_17":
+        plot_results(results_df, dataset, y_range=(80, 100), include_legend=True)
+    else:
+        plot_results(results_df, dataset, include_legend=True)
