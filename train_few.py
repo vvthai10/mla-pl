@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
 print(torch.__version__)
 
 CLASS_INDEX = {
-    # "Bone_v3": 4,
+    "Bone_v3": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,

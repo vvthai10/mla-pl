@@ -11,7 +11,7 @@ from torchvision import transforms
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 CLASS_NAMES = [
-    # "Bone_v3",
+    "Bone_v3",
     "Brain",
     "Liver",
     "Retina_RESC",
@@ -20,7 +20,7 @@ CLASS_NAMES = [
     "Histopathology",
 ]
 CLASS_INDEX = {
-    # "Bone_v3": 4,
+    "Bone_v3": 4,
     "Brain": 3,
     "Liver": 2,
     "Retina_RESC": 1,
