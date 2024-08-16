@@ -112,7 +112,7 @@ def main():
         param.requires_grad = True
 
     # load test dataset
-    kwargs = {"num_workers": 16, "pin_memory": True} if use_cuda else {}
+    kwargs = {"num_workers": 4, "pin_memory": True} if use_cuda else {}
     test_dataset = MedDataset(
         args.data_path, args.obj, args.img_size, args.shot, args.iterate
     )
@@ -211,7 +211,11 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
                     anomaly_maps.append(anomaly_map.cpu().numpy())
 
                 score_map_zero = np.sum(anomaly_maps, axis=0)
-                visualizer(pathes, score_map_zero, args.visualize_path)
+                visualizer(
+                    pathes,
+                    0.5 * score_map_zero + 0.5 * score_map_few,
+                    args.visualize_path,
+                )
                 seg_score_map_zero.append(score_map_zero)
 
             else:
@@ -260,7 +264,6 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
 
         seg_score_map_zero = np.array(seg_score_map_zero)
         seg_score_map_few = np.array(seg_score_map_few)
-
         seg_score_map_zero = (seg_score_map_zero - seg_score_map_zero.min()) / (
             seg_score_map_zero.max() - seg_score_map_zero.min()
         )
@@ -273,13 +276,13 @@ def test(args, model, test_loader, prompt_maker, seg_mem_features, det_mem_featu
         print(f"{args.obj} pAUC : {round(seg_roc_auc,4)}")
 
         segment_scores_flatten = segment_scores.reshape(segment_scores.shape[0], -1)
+
         roc_auc_im = roc_auc_score(gt_list, np.max(segment_scores_flatten, axis=1))
         print(f"{args.obj} AUC : {round(roc_auc_im, 4)}")
 
         return seg_roc_auc + roc_auc_im
 
     else:
-
         det_image_scores_zero = np.array(det_image_scores_zero)
         det_image_scores_few = np.array(det_image_scores_few)
 

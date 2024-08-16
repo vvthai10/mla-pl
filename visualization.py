@@ -7,10 +7,11 @@ import numpy as np
 def visualizer(pathes, anomaly_map, save_path, masked=False):
     for idx, path in enumerate(pathes):
 
-        if "Ungood" not in path:
-            continue
+        # if "Ungood" not in path:
+        #     continue
 
-        filename = path.split("/")[-1]
+        # filename = path.split("/")[-1]
+        filename = os.path.basename(path)
         name, ext = filename.split(".")
         # Load the image in original size
         image = cv2.imread(path)
@@ -22,6 +23,7 @@ def visualizer(pathes, anomaly_map, save_path, masked=False):
         # Get the original image size
         original_size = (image.shape[1], image.shape[0])
         # print(anomaly_map[idx].shape)
+
         # Normalize the anomaly map
         mask = normalize(anomaly_map[idx])
 
@@ -38,21 +40,21 @@ def visualizer(pathes, anomaly_map, save_path, masked=False):
         if not os.path.exists(save_vis):
             os.makedirs(save_vis)
         if masked:
-            cv2.imwrite(
-                os.path.join(save_vis, name + "_map.jpg"),
-                mask_image(vis),
-                [int(cv2.IMWRITE_JPEG_QUALITY), 100],
-            )
+            # cv2.imwrite(
+            #     os.path.join(save_vis, name + "_map.jpg"),
+            #     mask_image(vis),
+            #     [int(cv2.IMWRITE_JPEG_QUALITY), 100],
+            # )
             cv2.imwrite(
                 os.path.join(save_vis, name + "_mask.jpg"),
                 mask_image(binary_mask),
                 [int(cv2.IMWRITE_JPEG_QUALITY), 100],
             )
-            cv2.imwrite(
-                os.path.join(save_vis, name + "_img.jpg"),
-                mask_image(image),
-                [int(cv2.IMWRITE_JPEG_QUALITY), 100],
-            )
+            # cv2.imwrite(
+            #     os.path.join(save_vis, name + "_img.jpg"),
+            #     mask_image(image),
+            #     [int(cv2.IMWRITE_JPEG_QUALITY), 100],
+            # )
 
             cv2.imwrite(
                 os.path.join(save_vis, name + "_gt.jpg"),
@@ -60,21 +62,21 @@ def visualizer(pathes, anomaly_map, save_path, masked=False):
                 [int(cv2.IMWRITE_JPEG_QUALITY), 100],
             )
         else:
-            cv2.imwrite(
-                os.path.join(save_vis, name + "_map.jpg"),
-                vis,
-                [int(cv2.IMWRITE_JPEG_QUALITY), 100],
-            )
+            # cv2.imwrite(
+            #     os.path.join(save_vis, name + "_map.jpg"),
+            #     vis,
+            #     [int(cv2.IMWRITE_JPEG_QUALITY), 100],
+            # )
             cv2.imwrite(
                 os.path.join(save_vis, name + "_mask.jpg"),
                 binary_mask,
                 [int(cv2.IMWRITE_JPEG_QUALITY), 100],
             )
-            cv2.imwrite(
-                os.path.join(save_vis, name + "_img.jpg"),
-                image,
-                [int(cv2.IMWRITE_JPEG_QUALITY), 100],
-            )
+            # cv2.imwrite(
+            #     os.path.join(save_vis, name + "_img.jpg"),
+            #     image,
+            #     [int(cv2.IMWRITE_JPEG_QUALITY), 100],
+            # )
             cv2.imwrite(
                 os.path.join(save_vis, name + "_gt.jpg"),
                 image_mask,

@@ -217,7 +217,7 @@ def main():
                 seg_patch_tokens, det_patch_tokens = model(image)
                 seg_patch_tokens = [p[:, 1:, :] for p in seg_patch_tokens]
                 det_patch_tokens = [p[:, 1:, :] for p in det_patch_tokens]
-
+                
                 prompts_feat = prompt_maker()
 
                 # image level

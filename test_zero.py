@@ -166,12 +166,10 @@ def test(args, seg_model, test_loader, prompt_maker):
             final_score_map = np.sum(anomaly_maps, axis=0)
 
             if CLASS_INDEX[args.obj] > 0:
-                # visualizer(pathes, final_score_map, args.visualize_path)
                 visualizer(
                     pathes,
                     final_score_map,
                     args.visualize_path,
-                    masked="bone" in args.obj.lower(),
                 )
 
             gt_mask_list.append(mask.squeeze().cpu().detach().numpy())
