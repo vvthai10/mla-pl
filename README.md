@@ -13,14 +13,40 @@ The full paper, **"Abnormality Detection in Medical Images Based on Visual-Langu
 
 The MLA-LP model leverages the pre-trained **CLIP** vision-language model, enhanced with multi-level adapters and learnable prompts, to address the challenge of detecting and segmenting abnormalities in medical images. The model excels in both **zero-shot** and **few-shot** learning scenarios, achieving superior performance in anomaly classification (AC) and anomaly segmentation (AS) tasks across diverse medical imaging datasets.
 
-### Key Features
+![The overview of our proposed MLA-LP model.](images/MLA-LP.jpg)
+_The overview of our proposed MLA-LP model._
+
+### Learnable Prompt
+
+In medical anomaly detection, using **learnable prompts** in text-based encoding offers a highly effective approach for enhancing system performance. Text provides rich semantic context and a flexible, abstract representation of abnormalities in medical images. This enables models to **adapt dynamically across different clinical scenarios**, improving both feature extraction and the accuracy of classification and segmentation tasks.
+
+The core idea of learnable prompts is to represent prompt context using a set of trainable vectors, which are optimized during training to minimize both classification and segmentation loss. Rather than depending on static, handcrafted templates, these prompts allow the system to learn context-specific cues automatically—capturing subtle differences between normal and abnormal patterns in a wide range of medical imaging settings.
+
+### Adapters
+
+In this section, we introduce the Visual Adapter, a module designed to extract and refine local features to support both classification and segmentation tasks.
+
+The adapter follows a bottleneck design, implemented using a sequence of linear layers. As illustrated in Figure 2(a), the input to the adapter is a feature map F extracted from the CLIP model. The Visual Adapter is composed of two specialized modules:
+
+- A\_{ac}: The classification adapter
+
+- A\_{as}: The segmentation adapter
+
+Both adapters are built using the same bottleneck architecture, which allows efficient transformation of features before feeding them back into the CLIP image encoder.
+
+As shown in Figure 2(b), each adapter module consists of two linear layers with a LeakyReLU activation function in between, forming a lightweight yet expressive transformation pipeline.
+
+![Illustration of the Visual Adapter architecture. (a) The left figure presents the general architecture of the Visual Adapter, comprising two modules: the classification adapter Aac and the segmentation adapter Aas. (b) The right figure details the architecture of each adapter module Aac/as.](images/adapter.jpg)
+_Illustration of the Visual Adapter architecture. (a) The left figure presents the general architecture of the Visual Adapter, comprising two modules: the classification adapter Aac and the segmentation adapter Aas. (b) The right figure details the architecture of each adapter module Aac/as._
+
+## Key Features
 
 - **Multi-Level Adapters**: Adapts intermediate layers of CLIP’s visual encoder to capture medical-specific features.
 - **Learnable Prompts**: Dynamically adjusts textual prompts to improve flexibility and generalization across medical datasets.
 - **Zero-Shot and Few-Shot Learning**: Performs effectively with minimal or no labeled data.
 - **Datasets Evaluated**: ChestXray, HIS, OCT17, BrainMRI, LiverCT, RESC.
 
-### Performance
+## Performance
 
 - **Few-Shot Setting**: Achieves an average AUC improvement of **0.28%** for anomaly classification and **0.08%** for anomaly segmentation compared to state-of-the-art models.
 - **Zero-Shot Setting**: Achieves an average AUC improvement of **0.39%** for anomaly classification.
@@ -81,18 +107,6 @@ In zero-shot scenarios, the model achieves competitive performance without requi
 Visualizations of anomaly detection and segmentation results are provided to illustrate the model’s capability to localize abnormalities in medical images.
 
 ![Visualization](images/visualize.png)
-
-## Repository Structure
-
-```
-├── data/                   # Dataset directory (ChestXray, HIS, OCT17, BrainMRI, LiverCT, RESC)
-├── images/                 # Result visualizations and figures
-├── train_few.py            # Script for few-shot training
-├── train_zero.py           # Script for zero-shot training
-├── requirements.txt        # List of dependencies
-├── README.md               # This file
-└── src/                    # Source code for the MLA-LP model
-```
 
 ## Datasets
 
